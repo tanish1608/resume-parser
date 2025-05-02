@@ -6,6 +6,8 @@ from collections import defaultdict
 import sys
 import time
 import logging
+import statistics
+
 
 # Configure basic logging
 logging.basicConfig(
@@ -40,6 +42,7 @@ def is_heading_text(text):
     # Check if the normalized text matches any heading keyword
     return any(kw in clean for kw in heading_keywords)
 
+
 def get_heading_type(text):
     """Determine which type of heading the text represents."""
     clean = normalize(text)
@@ -62,11 +65,25 @@ def get_heading_type(text):
         "LEADERSHIP": ["leadership", "management"]
     }
     
-    for section_name, keywords in section_types.items():
-        if any(kw in clean for kw in keywords):
-            return section_name
+    best_match = None
+    best_score = 0
     
-    return None
+    for section_name, keywords in section_types.items():
+        score = 0
+        for kw in keywords:
+            if kw in clean:
+                # Exact match gets higher score
+                if kw == clean:
+                    score += 3
+                # Partial match gets proportional score based on keyword length
+                else:
+                    score += len(kw) / len(clean) if len(clean) > 0 else 0
+        
+        if score > best_score:
+            best_score = score
+            best_match = section_name
+    
+    return best_match if best_score > 0.3 else None
 
 def extract_text_with_style(pdf_path):
     """Extract text with style information using PyMuPDF (fitz)."""
@@ -86,8 +103,8 @@ def extract_text_with_style(pdf_path):
                                 font_sizes.append(span.get("size", 0))
     
     # Calculate average font size
-    avg_font_size = sum(font_sizes) / len(font_sizes) if font_sizes else 11  # Default if no valid sizes
-    heading_font_threshold = avg_font_size * 1.1  # 10% larger than average
+    # avg_font_size = sum(font_sizes) / len(font_sizes) if font_sizes else 11  # Default if no valid sizes
+    # heading_font_threshold = avg_font_size * 1.1  # 10% larger than average
     
     # Now extract elements with style information
     for page_num, page in enumerate(doc):
@@ -108,13 +125,7 @@ def extract_text_with_style(pdf_path):
                             is_capital = text.isupper() and len(text) > 2  # Check if text is all uppercase
                             is_spaced = " " in text and all(len(part) == 1 for part in text.split())  # S P A C E D text
                             
-                            # Detect if this might be a heading based on styling
-                            is_likely_heading = (
-                                (is_bold and is_heading_text(text)) or 
-                                (is_capital and is_heading_text(text)) or
-                                (font_size > heading_font_threshold and is_heading_text(text)) or
-                                (is_spaced and len(text) > 5)  # Spaced out text like "E D U C A T I O N"
-                            )
+
                             
                             all_elements.append({
                                 "page": page_num,
@@ -128,11 +139,69 @@ def extract_text_with_style(pdf_path):
                                 "is_bold": is_bold,
                                 "is_capital": is_capital,
                                 "is_spaced": is_spaced,
-                                "is_likely_heading": is_likely_heading
                             })
     
     doc.close()
     return all_elements
+
+def analyze_font_metrics(elements):
+    """Analyze font metrics to determine relative size thresholds."""
+    # Extract font sizes
+    font_sizes = [elem["font_size"] for elem in elements if elem["font_size"] > 0]
+    
+    # If no valid font sizes found, return default values
+    if not font_sizes:
+        return {
+            "median_size": 11,
+            "heading_size_threshold": 12,
+            "small_text_threshold": 8
+        }
+    
+    # Calculate font size statistics
+    try:
+        median_size = statistics.median(font_sizes)
+        # Get the most common font sizes (may have multiple modes)
+        size_counts = {}
+        for size in font_sizes:
+            size_rounded = round(size, 1)  # Round to nearest decimal to group similar sizes
+            size_counts[size_rounded] = size_counts.get(size_rounded, 0) + 1
+        
+        # Get the most frequent font size
+        mode_size = max(size_counts.items(), key=lambda x: x[1])[0]
+    except statistics.StatisticsError:
+        # Handle cases where statistics can't be calculated
+        median_size = sum(font_sizes) / len(font_sizes)
+        mode_size = median_size
+    
+    # Determine more adaptive thresholds based on document analysis
+    # Look for natural breaks in font sizes by finding the largest gap
+    sorted_sizes = sorted(list(set([round(s, 1) for s in font_sizes])))
+    
+    # If there are multiple font sizes, look for natural breaks
+    if len(sorted_sizes) > 1:
+        gaps = [(sorted_sizes[i+1] - sorted_sizes[i], i) for i in range(len(sorted_sizes)-1)]
+        if gaps:
+            max_gap = max(gaps)
+            if max_gap[0] > 0.5:  # If there's a significant gap
+                # Use the size just above the largest gap as heading threshold
+                heading_size_threshold = sorted_sizes[max_gap[1] + 1]
+            else:
+                # Use a relative threshold if no clear gap exists
+                heading_size_threshold = max(mode_size * 1.15, median_size * 1.1)
+        else:
+            heading_size_threshold = max(mode_size * 1.15, median_size * 1.1)
+    else:
+        # If only one font size, use a default relative increase
+        heading_size_threshold = mode_size * 1.2
+    
+    small_text_threshold = min(mode_size * 0.9, median_size * 0.85)
+    
+    return {
+        "median_size": median_size,
+        "mode_size": mode_size,
+        "heading_size_threshold": heading_size_threshold,
+        "small_text_threshold": small_text_threshold,
+    }
 
 def detect_layout_orientation(elements, pdf_path):
     """Detect if the resume has vertical sections or horizontal layout."""
@@ -235,83 +304,164 @@ def analyze_layout(elements, pdf_path):
     # Default to 60% of page width if we can't clearly detect columns
     return page_width * 0.6, False
 
-def identify_section_headings(elements, column_divider, is_multi_column, is_vertical_layout):
+def is_at_line_start(element, all_elements):
+    """Check if an element is at the start of a line (no elements to its left)."""
+    for other in all_elements:
+        if (other["page"] == element["page"] and 
+            abs(other["y0"] - element["y0"]) < 5 and  # Same line (within 5 points)
+            other["x0"] < element["x0"]):  # To the left
+            return False
+    return True
+
+def has_space_above(element, all_elements):
+    """Check if there's significant whitespace above this element."""
+    if element["page"] == 0 and element["y0"] < 50:
+        return True  # Near top of first page
+        
+    # Find the closest element above this one
+    elements_above = [e for e in all_elements if 
+                     e["page"] == element["page"] and 
+                     e["y1"] < element["y0"]]
+    
+    if not elements_above:
+        return True  # Nothing above
+    
+    closest_above = max(elements_above, key=lambda e: e["y1"])
+    gap = element["y0"] - closest_above["y1"]
+    
+    # Estimate typical line height
+    line_height = element["y1"] - element["y0"]
+    
+    # Is gap significantly larger than line height?
+    return gap > 1.5 * line_height
+
+def is_indented_less_than_following(element, all_elements):
+    """Check if this element is less indented than the following text (section content)."""
+    elements_below = [e for e in all_elements if 
+                     e["page"] == element["page"] and 
+                     e["y0"] > element["y1"] and
+                     e["y0"] < element["y1"] + 50]  # Within reasonable distance
+    
+    if not elements_below:
+        return False
+    
+    # Get the most common x0 of elements below
+    x0_values = [e["x0"] for e in elements_below]
+    if not x0_values:
+        return False
+        
+    # Check if most following elements are indented more than this one
+    return sum(1 for x in x0_values if x > element["x0"]) > len(x0_values) / 2
+
+def get_following_text(element, all_elements, num_elements=5):
+    """Get text from elements following the given element."""
+    elements_below = [e for e in all_elements if 
+                     (e["page"] > element["page"] or 
+                     (e["page"] == element["page"] and e["y0"] > element["y1"]))]
+    
+    # Sort by page and position
+    elements_below.sort(key=lambda e: (e["page"], e["y0"]))
+    
+    # Get the next few elements
+    next_elements = elements_below[:num_elements]
+    
+    # Combine their text
+    return " ".join([e["text"] for e in next_elements])
+
+def section_matches_content(section_type, content_text):
+    """Check if content matches the expected pattern for a section type."""
+    content_lower = content_text.lower()
+    
+    patterns = {
+        "EDUCATION": r'(university|college|school|degree|gpa|cgpa|bachelor|master|phd|20\d\d|19\d\d)',
+        "EXPERIENCE": r'(company|position|job|role|responsibilities|manager|intern|20\d\d|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)',
+        "SKILLS": r'(proficient|familiar|expert|knowledge|experience|advanced|intermediate|beginner|tools|technologies|languages)',
+        "PROJECTS": r'(developed|created|built|implemented|designed|project|application|system|website|software)',
+        "CERTIFICATIONS": r'(certified|certificate|certification|course|training|issued|completed)',
+        "LANGUAGES": r'(native|fluent|proficient|beginner|intermediate|advanced|speak|written|verbal)'
+    }
+    
+    if section_type in patterns:
+        pattern = patterns[section_type]
+        matches = re.findall(pattern, content_lower)
+        return len(matches) > 1
+    
+    return False
+
+def calculate_heading_confidence(element, all_elements, font_metrics):
+    """Calculate a more accurate confidence score for potential headings."""
+    confidence = 0
+    text = element["text"].strip()
+    
+    # Styling cues
+    if element["is_bold"]:
+        confidence += 2
+    if element["is_capital"]:
+        confidence += 2
+    if element["is_spaced"]:
+        confidence += 2
+    
+    # Font size comparison using relative metrics
+    if font_metrics["heading_size_threshold"] > 0:
+        size_ratio = element["font_size"] / font_metrics["heading_size_threshold"]
+        if size_ratio > 1:
+            confidence += 2 * min(size_ratio, 1.5)  # Cap at 3 points for size
+    
+    # Position cues
+    if is_at_line_start(element, all_elements):
+        confidence += 1.5
+    if has_space_above(element, all_elements):
+        confidence += 1.5
+    if is_indented_less_than_following(element, all_elements):
+        confidence += 1
+        
+    # Content cues
+    if len(text) < 25:  # Section headings are usually short
+        confidence += 1
+
+    
+    # Check if the text matches common section headings
+    heading_type = get_heading_type(text)
+    if heading_type != "OTHER":
+        confidence += 1.5
+    
+    # Contextual cues - check if following content matches section expectation
+    following_text = get_following_text(element, all_elements, 5)
+    if section_matches_content(heading_type, following_text):
+        confidence += 2
+    
+    return confidence
+
+
+def identify_section_headings(elements, column_divider, font_metrics, is_multi_column):
     """
     Identify section headings based on text styling and patterns.
-    Takes into account the multi-column layout and vertical/horizontal orientation.
+    Takes into account the multi-column layout and relative font sizes.
     """
     headings = []
+    min_confidence_threshold = 3.0  # Minimum confidence to consider as heading
     
-    # First pass - identify clear headings
+    # First pass - identify potential headings
     for i, elem in enumerate(elements):
         text = elem["text"].strip()
         
-        # Skip short text
-        if len(text) < 3:
+        # Skip very short text unless it's a known heading
+        if len(text) < 2 and not is_heading_text(text):
             continue
         
-        # Different ways to identify headings
-        is_heading = False
-        heading_type = None
+        # Calculate confidence score
+        heading_confidence = calculate_heading_confidence(elem, elements, font_metrics)
+        heading_type = get_heading_type(text)
         
-        # Check for spaced headings like "E D U C A T I O N"
-        if elem["is_spaced"] and len(text) > 5:
-            # Convert "E D U C A T I O N" to "EDUCATION" for checking
-            condensed = text.replace(" ", "")
-            heading_type = get_heading_type(condensed)
-            if heading_type:
-                is_heading = True
-        
-        # Check for all caps headings like "EDUCATION"
-        elif elem["is_capital"] and is_heading_text(text):
-            heading_type = get_heading_type(text)
-            if heading_type:
-                is_heading = True
-        
-        # Check for bold headings
-        elif elem["is_bold"] and is_heading_text(text):
-            heading_type = get_heading_type(text)
-            if heading_type:
-                is_heading = True
-        
-        # Check for large font headings
-        elif elem["font_size"] > 11 and is_heading_text(text):
-            heading_type = get_heading_type(text)
-            if heading_type:
-                is_heading = True
-        
-        # Additional checks: position cues (is this element at the start of a line?)
-        elif elem["is_likely_heading"]:
-            # Check if there are elements to the left on the same line
-            has_elements_to_left = any(
-                other["page"] == elem["page"] and 
-                abs(other["y0"] - elem["y0"]) < 5 and  # Same line (within 5 points)
-                other["x0"] < elem["x0"]  # To the left
-                for other in elements
-            )
-            
-            # Check if there's whitespace above this element
-            elements_above = [
-                e for e in elements if 
-                e["page"] == elem["page"] and 
-                e["y1"] < elem["y0"] and 
-                e["y1"] > elem["y0"] - 20  # Within 20 points above
-            ]
-            
-            has_space_above = len(elements_above) == 0
-            
-            if not has_elements_to_left and (has_space_above or is_heading_text(text)):
-                heading_type = get_heading_type(text)
-                if heading_type:
-                    is_heading = True
-        
-        if is_heading and heading_type:
-            # Determine which column this heading belongs to
+        # Only consider elements with sufficient confidence
+        if heading_confidence >= min_confidence_threshold:
+            # Determine which column this heading belongs to in multi-column layout
             if is_multi_column:
                 column = "left" if elem["x0"] < column_divider else "right"
             else:
                 column = "single"
             
+            # Ensure font_size is included in the heading information
             headings.append({
                 "page": elem["page"],
                 "text": text,
@@ -320,28 +470,43 @@ def identify_section_headings(elements, column_divider, is_multi_column, is_vert
                 "x1": elem["x1"],
                 "y1": elem["y1"],
                 "type": heading_type,
-                "column": column
+                "column": column,
+                "confidence": heading_confidence,
+                "font_size": elem["font_size"]  # Include font_size
             })
     
-    # Filter out duplicate headings of the same type that are close to each other
+    # Sort headings by confidence (higher score first)
+    headings.sort(key=lambda h: h["confidence"], reverse=True)
+    
+    # Filter out overlapping or duplicate headings
     filtered_headings = []
     for heading in headings:
         # Check if we already have a similar heading
-        is_duplicate = False
+        duplicate = False
         for existing in filtered_headings:
-            # Consider headings as duplicates if they're the same type, in the same column, 
-            # and close to each other vertically
+            # Same type in same area
             if (existing["type"] == heading["type"] and 
-                existing["column"] == heading["column"] and 
                 existing["page"] == heading["page"] and
+                existing["column"] == heading["column"] and
                 abs(existing["y0"] - heading["y0"]) < 50):  # Within 50 points vertically
-                is_duplicate = True
+                duplicate = True
                 break
         
-        if not is_duplicate:
+        if not duplicate:
             filtered_headings.append(heading)
     
+    # Final pass - ensure canonical section names have highest confidence
+    # If we find a section like "education" with low confidence but strong contextual
+    # evidence, boost its confidence
+    for heading in filtered_headings:
+        if heading["confidence"] < 5 and heading["type"] != "OTHER":
+            following_text = get_following_text(heading, elements, 10)
+            if section_matches_content(heading["type"], following_text):
+                heading["confidence"] += 1.5
+                logger.info(f"Boosted confidence for {heading['text']} based on content match")
+    
     return filtered_headings
+
 
 def extract_sections(headings, elements, column_divider, is_multi_column, is_vertical_layout):
     """
@@ -686,6 +851,10 @@ def parse_resume(pdf_path):
         if not elements:
             logger.error(f"No text elements found in {pdf_path}")
             return None, {}, False, False
+        font_metrics = analyze_font_metrics(elements)
+        logger.info(f"Font metrics analysis:")
+        logger.info(f"  - Median size: {font_metrics['median_size']:.2f}")
+        logger.info(f"  - Heading size threshold: {font_metrics['heading_size_threshold']:.2f}")
         
         # Detect layout orientation (vertical vs horizontal)
         is_vertical_layout = detect_layout_orientation(elements, pdf_path)
@@ -697,7 +866,7 @@ def parse_resume(pdf_path):
         logger.info(f"Column divider at x-coordinate: {column_divider}")
         
         # Identify section headings, taking into account the column structure
-        headings = identify_section_headings(elements, column_divider, is_multi_column, is_vertical_layout)
+        headings = identify_section_headings(elements, column_divider,font_metrics, is_multi_column)
         logger.info(f"Identified {len(headings)} section headings:")
         
         # Count headings in each column
