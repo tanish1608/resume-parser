@@ -198,100 +198,133 @@ def analyze_layout(elements, pdf_path):
     Enhanced layout analysis to detect complex column structures.
     Returns column dividers and whether it's a multi-column layout.
     """
+    # with pdfplumber.open(pdf_path) as pdf:
+    #     page_width = pdf.pages[0].width
+    
+    # # Create a visual "heat map" of text positions
+    # x_positions = {}
+    # for elem in elements:
+    #     x_bin = round(elem["x0"] / 5) * 5  # 5pt bins
+    #     x_positions[x_bin] = x_positions.get(x_bin, 0) + 1
+    
+    # # Check if we have a multi-column layout
+    # left_region = sum(x_positions.get(x, 0) for x in range(0, int(page_width * 0.4), 5))
+    # middle_region = sum(x_positions.get(x, 0) for x in range(int(page_width * 0.4), int(page_width * 0.6), 5))
+    # right_region = sum(x_positions.get(x, 0) for x in range(int(page_width * 0.6), int(page_width), 5))
+    
+    # total_elements = left_region + middle_region + right_region
+    # if total_elements == 0:
+    #     return page_width * 0.6, False  # Default, no multi-column
+    
+    # left_ratio = left_region / total_elements
+    # middle_ratio = middle_region / total_elements
+    # right_ratio = right_region / total_elements
+    
+    # # Generate density profile for visualization
+    # x_vals = sorted(x_positions.keys())
+    # density = [x_positions[x] for x in x_vals]
+    
+    # # Check for significant gaps in x-distribution
+    # is_multi_column = (left_ratio > 0.25 and right_ratio > 0.25 and middle_ratio < 0.15)
+    
+    # # If we have too few points, fall back to simple approach
+    # if len(x_vals) < 10:
+    #     if is_multi_column:
+    #         return page_width * 0.5, True
+    #     else:
+    #         return page_width * 0.6, False
+    
+    # # Use peak detection to find columns
+    # try:
+    #     # Convert density to numpy array for find_peaks
+    #     density_array = np.array(density)
+    #     peaks, _ = find_peaks(density_array, height=max(density_array)*0.3, distance=page_width*0.1/5)
+    #     peak_positions = [x_vals[p] for p in peaks if p < len(x_vals)]
+        
+    #     if len(peak_positions) <= 1:
+    #         # Only one column detected
+    #         return page_width * 0.6, False
+        
+    #     # Find valleys between peaks to identify column dividers
+    #     valleys = []
+    #     for i in range(len(peaks)-1):
+    #         start_idx = peaks[i]
+    #         end_idx = peaks[i+1]
+    #         if start_idx >= len(density) or end_idx >= len(density):
+    #             continue
+                
+    #         between_segment = density[start_idx:end_idx+1]
+    #         if between_segment:
+    #             min_val = min(between_segment)
+    #             if min_val < max(density) * 0.3:  # Significant valley
+    #                 min_idx = between_segment.index(min_val) + start_idx
+    #                 if min_idx < len(x_vals):
+    #                     valley_position = x_vals[min_idx]
+    #                     valleys.append(valley_position)
+        
+    #     # Use the most significant valley as column divider
+    #     if valleys and is_multi_column:
+    #         # Find the valley closest to the middle
+    #         middle_x = page_width / 2
+    #         divider = min(valleys, key=lambda v: abs(v - middle_x))
+    #         return divider, True
+    # except Exception as e:
+    #     logger.error(f"Error in peak detection: {str(e)}")
+    #     # Fall back to simple method
+    
+    # # Improved heuristic for column detection - analyze text distribution
+    # if is_multi_column:
+    #     # Try to find a clear gap in the middle of the page
+    #     middle_start = int(page_width * 0.4)
+    #     middle_end = int(page_width * 0.6)
+        
+    #     # Count elements in each position in the middle area
+    #     middle_counts = [x_positions.get(x, 0) for x in range(middle_start, middle_end, 5)]
+        
+    #     # If there's a significant empty area in the middle, use it to determine column divider
+    #     if middle_counts and max(middle_counts) < max(density) * 0.3:
+    #         # Find the position with minimum elements in the middle
+    #         min_pos = middle_start + middle_counts.index(min(middle_counts)) * 5
+    #         return min_pos, True
+    #     else:
+    #         # Default to middle of page
+    #         return page_width * 0.5, True
+    # else:
+    #     return page_width * 0.6, False
     with pdfplumber.open(pdf_path) as pdf:
         page_width = pdf.pages[0].width
-        page_height = pdf.pages[0].height
     
-    # Create a visual "heat map" of text positions
-    x_positions = {}
-    for elem in elements:
-        x_bin = round(elem["x0"] / 5) * 5  # 5pt bins
-        x_positions[x_bin] = x_positions.get(x_bin, 0) + 1
+    # Get all x-coordinates
+    x_coords = [elem["x0"] for elem in elements]
     
-    # Check if we have a multi-column layout
-    left_region = sum(x_positions.get(x, 0) for x in range(0, int(page_width * 0.4), 5))
-    middle_region = sum(x_positions.get(x, 0) for x in range(int(page_width * 0.4), int(page_width * 0.6), 5))
-    right_region = sum(x_positions.get(x, 0) for x in range(int(page_width * 0.6), int(page_width), 5))
+    # Create a histogram of x-coordinates to find columns
+    x_hist = defaultdict(int)
+    for x in x_coords:
+        # Round to nearest 10 to create bins
+        bin_x = round(x / 10) * 10
+        x_hist[bin_x] += 1
     
-    total_elements = left_region + middle_region + right_region
-    if total_elements == 0:
-        return page_width * 0.6, False  # Default, no multi-column
+    # Sort bins by frequency
+    sorted_bins = sorted(x_hist.items(), key=lambda x: x[1], reverse=True)
     
-    left_ratio = left_region / total_elements
-    middle_ratio = middle_region / total_elements
-    right_ratio = right_region / total_elements
-    
-    # Generate density profile for visualization
-    x_vals = sorted(x_positions.keys())
-    density = [x_positions[x] for x in x_vals]
-    
-    # Check for significant gaps in x-distribution
-    is_multi_column = (left_ratio > 0.25 and right_ratio > 0.25 and middle_ratio < 0.15)
-    
-    # If we have too few points, fall back to simple approach
-    if len(x_vals) < 10:
-        if is_multi_column:
-            return page_width * 0.5, True
-        else:
-            return page_width * 0.6, False
-    
-    # Use peak detection to find columns
-    try:
-        # Convert density to numpy array for find_peaks
-        density_array = np.array(density)
-        peaks, _ = find_peaks(density_array, height=max(density_array)*0.3, distance=page_width*0.1/5)
-        peak_positions = [x_vals[p] for p in peaks if p < len(x_vals)]
+    # If we have a clear two-column layout, we'll have distinct clusters of x-coordinates
+    if len(sorted_bins) >= 2:
+        # Get the most common x-positions
+        left_col_x = sorted_bins[0][0]
         
-        if len(peak_positions) <= 1:
-            # Only one column detected
-            return page_width * 0.6, False
+        # Find the next most common x-position that's significantly different
+        right_col_x = None
+        for bin_x, count in sorted_bins:
+            if abs(bin_x - left_col_x) > page_width * 0.2:  # At least 20% of page width apart
+                right_col_x = bin_x
+                break
         
-        # Find valleys between peaks to identify column dividers
-        valleys = []
-        for i in range(len(peaks)-1):
-            start_idx = peaks[i]
-            end_idx = peaks[i+1]
-            if start_idx >= len(density) or end_idx >= len(density):
-                continue
-                
-            between_segment = density[start_idx:end_idx+1]
-            if between_segment:
-                min_val = min(between_segment)
-                if min_val < max(density) * 0.3:  # Significant valley
-                    min_idx = between_segment.index(min_val) + start_idx
-                    if min_idx < len(x_vals):
-                        valley_position = x_vals[min_idx]
-                        valleys.append(valley_position)
-        
-        # Use the most significant valley as column divider
-        if valleys and is_multi_column:
-            # Find the valley closest to the middle
-            middle_x = page_width / 2
-            divider = min(valleys, key=lambda v: abs(v - middle_x))
-            return divider, True
-    except Exception as e:
-        logger.error(f"Error in peak detection: {str(e)}")
-        # Fall back to simple method
+        if right_col_x:
+            # Return the midpoint between the columns as a divider
+            return (left_col_x + right_col_x) / 2
     
-    # Improved heuristic for column detection - analyze text distribution
-    if is_multi_column:
-        # Try to find a clear gap in the middle of the page
-        middle_start = int(page_width * 0.4)
-        middle_end = int(page_width * 0.6)
-        
-        # Count elements in each position in the middle area
-        middle_counts = [x_positions.get(x, 0) for x in range(middle_start, middle_end, 5)]
-        
-        # If there's a significant empty area in the middle, use it to determine column divider
-        if middle_counts and max(middle_counts) < max(density) * 0.3:
-            # Find the position with minimum elements in the middle
-            min_pos = middle_start + middle_counts.index(min(middle_counts)) * 5
-            return min_pos, True
-        else:
-            # Default to middle of page
-            return page_width * 0.5, True
-    else:
-        return page_width * 0.6, False
+    # Default to 60% of page width if we can't clearly detect columns
+    return page_width * 0.6
 
 def detect_layout_orientation(elements, pdf_path):
     """
@@ -1035,25 +1068,24 @@ def parse_resume(pdf_path):
         logger.info(f"  - Heading size threshold: {font_metrics['heading_size_threshold']:.2f}")
         
         # Determine if the document has a multi-column layout
-        column_divider, is_multi_column = analyze_layout(elements, pdf_path)
+        column_divider = analyze_layout(elements, pdf_path)
         logger.info(f"Layout analysis:")
-        logger.info(f"  - Multi-column: {is_multi_column}")
         logger.info(f"  - Column divider at x-coordinate: {column_divider:.1f}")
-
+        is_multi_column = False
         # Check if the layout is vertical
         is_vertical_layout = detect_layout_orientation(elements, pdf_path)
         logger.info(f"  - Vertical layout: {is_vertical_layout}")
         
         # Identify section headings, taking into account the column structure
-        headings = identify_section_headings(elements, column_divider, font_metrics, is_multi_column, is_vertical_layout)
+        headings = identify_section_headings(elements, column_divider, font_metrics,is_multi_column, is_vertical_layout)
         logger.info(f"Identified {len(headings)} section headings")
         
         # Count headings in each column
-        if is_multi_column:
-            left_headings = [h for h in headings if h["column"] == "left"]
-            right_headings = [h for h in headings if h["column"] == "right"]
-            logger.info(f"  - Left column: {len(left_headings)} headings")
-            logger.info(f"  - Right column: {len(right_headings)} headings")
+        # if is_multi_column:
+        #     left_headings = [h for h in headings if h["column"] == "left"]
+        #     right_headings = [h for h in headings if h["column"] == "right"]
+        #     logger.info(f"  - Left column: {len(left_headings)} headings")
+        #     logger.info(f"  - Right column: {len(right_headings)} headings")
         
         for heading in headings:
             logger.info(f"  - {heading['text']} ({heading['type']}, {heading['column']} column, confidence: {heading['confidence']:.1f})")
@@ -1070,7 +1102,7 @@ def parse_resume(pdf_path):
         out_path = visualize_sections(pdf_path, sections, headings, column_divider, is_multi_column)
         logger.info(f"Visualization saved to: {out_path}")
         
-        return out_path, sections, is_multi_column
+        return out_path, sections
         
     except Exception as e:
         logger.error(f"Error parsing resume {pdf_path}: {str(e)}")
@@ -1101,20 +1133,20 @@ def main():
         logger.info(f"Found {len(pdf_files)} PDF files to process")
         
         for pdf_path in pdf_files:
-            out_path, sections, is_multi_column = parse_resume(pdf_path)
+            out_path, sections = parse_resume(pdf_path)
             logger.info(f"Processed: {pdf_path}")
             logger.info(f"Output: {out_path}")
             logger.info(f"Sections detected: {len(sections)}")
-            logger.info(f"Layout: {'Multi-column' if is_multi_column else 'Single-column'}")
+            # logger.info(f"Layout: {'Multi-column' if is_multi_column else 'Single-column'}")
             logger.info("-" * 40)
     else:
         # Process a single PDF
-        out_path, sections, is_multi_column = parse_resume(input_path)
+        out_path, sections = parse_resume(input_path)
         if out_path:
             logger.info(f"Successfully processed: {input_path}")
             logger.info(f"Output: {out_path}")
             logger.info(f"Sections detected: {len(sections)}")
-            logger.info(f"Layout: {'Multi-column' if is_multi_column else 'Single-column'}")
+            # logger.info(f"Layout: {'Multi-column' if is_multi_column else 'Single-column'}")
         else:
             logger.error(f"Failed to process: {input_path}")
 
