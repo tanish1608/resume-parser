@@ -3,7 +3,6 @@ import fitz  # PyMuPDF
 import os
 import re
 from collections import defaultdict
-import sys
 import time
 import logging
 import numpy as np
@@ -20,9 +19,8 @@ logger = logging.getLogger(__name__)
 # Constants for section detection
 MIN_HEADING_LENGTH = 2  # Minimum length for heading text
 COLUMN_DETECTION_THRESHOLD = 0.2  # Percentage of page width to determine column separation
-FONT_SIZE_THRESHOLD_FACTOR = 1.15  # Multiplier for average font size to identify headings
 LINE_SPACING_TOLERANCE = 2  # Tolerance for grouping elements into lines (pixels)
-CONFIDENCE_THRESHOLD = 0.7  # Minimum confidence score to consider a detected heading valid
+CONFIDENCE_THRESHOLD = 0.8 # Minimum confidence score to consider a detected heading valid
 
 # Enhanced Section keywords - expanded with international and abbreviated variations
 SECTION_KEYWORDS = {
@@ -50,7 +48,7 @@ SECTION_KEYWORDS = {
         "experience", "experiences", "work", "workexperience", "work-experience", "work/experience", 
         "employment", "career", "job", "jobs", "workhistory", "work history", "professional", "prof", 
         "professionalexperience", "professional background", "employment history", "internship", 
-        "internships", "exp", "wrk", "work exp", "prof exp", "occupation", "occupations", "positions",
+        "internships", "exp", "wrk", "work exp", "prof exp", "occupation", "occupations", "positions", "Work Experience",
         # International variations
         "berufserfahrung", "erfahrung", "experiencia", "expérience", "esperienza", "werkervaring",
         "arbeidservaring", "experiência", "erhvervserfaring", "työkokemus", "pracovní zkušenosti",
@@ -107,7 +105,7 @@ SECTION_KEYWORDS = {
     
     "CERTIFICATIONS": [
         # English variations
-        "certifications", "certification", "certificates", "certificate", "credentials", "licenses", 
+        "certifications", "certification", "certificates", "certificate","CERTIFICATES", "credentials", "licenses", 
         "license", "accreditation", "accreditations", "qualification", "qualifications", "certs", 
         "certified", "diplomas", "diploma", "professional certifications", "professional development",
         # International variations
@@ -120,8 +118,8 @@ SECTION_KEYWORDS = {
     "AWARDS": [
         # English variations
         "awards", "award", "honors", "honour", "achievements", "recognition", "accolades", "prizes", 
-        "prize", "distinctions", "accomplishments", "scholarships", "fellowship", "grant", "grants", 
-        "scholarship", "awrds", "achievements", "recognitions", "accolades", "honors and awards",
+        "prize", "distinctions", "accomplishments", "scholarships", "fellowship", "grant", "grants","academic and extracurricular achievements" 
+        "scholarship", "awrds", "achievements", "recognitions", "accolades", "honors and awards","awards and achievements",
         # International variations
         "auszeichnungen", "premios", "prix", "premi", "prijzen", "utmerkelser", "prêmios", "priser",
         "palkinnot", "ocenění", "奖项", "賞", "पुरस्कार", "الجوائز", "giải thưởng", "penghargaan",
@@ -164,7 +162,7 @@ SECTION_KEYWORDS = {
         "activities", "activity", "extracurricular", "extra-curricular", "extracurricular activities", 
         "co-curricular", "cocurricular", "volunteer", "volunteering", "community service", "leadership",
         "involvement", "interests", "hobbies", "hobby", "activities & interests", "activities and interests",
-        "extra", "volunteer work", "community involvement", "participation", "campus involvement",
+        "extra", "volunteer work", "community involvement", "participation","leadership & activities", "campus involvement",
         # International variations
         "aktivitäten", "actividades", "activités", "attività", "activiteiten", "aktiviteter",
         "atividades", "aktiviteter", "aktiviteetit", "aktivity", "活动", "アクティビティ", "गतिविधियां",
@@ -296,7 +294,7 @@ def is_heading_text(text, section_keywords=None):
             matches.append((confidence, section_type))
     
     # Check if the text is fully contained in any keyword (abbreviated form)
-    if len(clean) >= MIN_HEADING_LENGTH:
+    if len(clean) >= MIN_HEADING_LENGTH + 1:
         for keyword, section_type in section_keywords.items():
             if clean in keyword and len(clean) >= len(keyword) * 0.5:  # At least half the keyword
                 # More confidence if the text is a larger portion of the keyword
@@ -311,7 +309,17 @@ def is_heading_text(text, section_keywords=None):
         "projects": "PROJECTS",
         "objective": "OBJECTIVE",
         "summary": "SUMMARY",
-        "contact": "CONTACT"
+        "certifications": "CERTIFICATIONS",
+        "awards": "AWARDS",
+        "achievements": "ACHIEVEMENTS",
+        "languages": "LANGUAGES",
+        "publications": "PUBLICATIONS",
+        "activities": "ACTIVITIES",
+        "strength": "STRENGTH",
+        "interests": "INTERESTS",
+        "contact": "CONTACT",
+        "internships": "EXPERIENCE",
+        "extracurricular": "ACTIVITIES",
     }
     
     for keyword, section_type in common_headings.items():
@@ -581,14 +589,14 @@ def detect_column_whitespace(elements, pdf_path):
         page_height = 792  # Default
     
     # Skip header/footer by focusing on the middle 80% of the page
-    top_margin = page_height * 0.2
+    top_margin = page_height * 0.15
     bottom_margin = page_height * 0.8
     
     # Only include elements in the main content area (exclude header/footer)
     content_elements = [e for e in elements if top_margin <= e["y0"] <= bottom_margin]
     
     if len(content_elements) < 10:
-        return page_width * 0.6  # Default if not enough elements
+        return page_width  # Default if not enough elements
     
     # Divide the page width into bins (e.g., 50 bins for more granularity)
     num_bins = 50
@@ -641,7 +649,7 @@ def detect_column_whitespace(elements, pdf_path):
         return max_gap_center * bin_width
     
     # Fallback to previous method if no clear gap is found
-    return page_width * 0.6
+    return page_width 
 
 
 
