@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 # Constants for section detection
 MIN_HEADING_LENGTH = 2  # Minimum length for heading text
-COLUMN_DETECTION_THRESHOLD = 0.2  # Percentage of page width to determine column separation
 LINE_SPACING_TOLERANCE = 2  # Tolerance for grouping elements into lines (pixels)
 CONFIDENCE_THRESHOLD = 0.8 # Minimum confidence score to consider a detected heading valid
 
@@ -32,129 +31,70 @@ SECTION_KEYWORDS = {
     # Standard sections
     "EDUCATION": [
         # English variations
-        "education", "academic", "academics", "qualification", "qualifications", "educational", "edu", 
-        "schooling", "school", "studies", "study", "learning", "degree", "degrees", "university", 
+        "education", "academic", "academics", "qualification", "qualifications", "educational", "edu", "schooling", "school", "studies", "study", "learning", "degree", "degrees", "university", 
         "universities", "college", "colleges", "educational background", "academic background", "educational qualifications", "academic record", "academic credentials",
-        "academic history", "scholastic record", "academic profile", "university education",
-        "college education", "school education", "tertiary education", "higher education",
-        # International variations
-        "bildung", "ausbildung", "educación", "educacion", "formation", "formazione", "opleiding",
-        "utbildning", "educação", "uddannelse", "koulutus", "vzdělání", "教育", "教育背景", "学歴",
-        "शिक्षा", "التعليم", "giáo dục", "pendidikan", "การศึกษา", "edukacja", "εκπαίδευση"
+        "academic history", "scholastic record", "academic profile", "university education", "college education", "school education", "tertiary education", "higher education"
     ],
     
     "EXPERIENCE": [
         # English variations
-        "experience", "experiences", "work", "workexperience", "work-experience", "work/experience", 
-        "employment", "career", "job", "jobs", "workhistory", "work history", "professional", "prof", 
-        "professionalexperience", "professional background", "employment history", "internship", 
-        "internships", "exp", "wrk", "work exp", "prof exp", "occupation", "occupations", "positions", "Work Experience",
-        # International variations
-        "berufserfahrung", "erfahrung", "experiencia", "expérience", "esperienza", "werkervaring",
-        "arbeidservaring", "experiência", "erhvervserfaring", "työkokemus", "pracovní zkušenosti",
-        "工作经验", "経験", "अनुभव", "خبرة", "kinh nghiệm", "pengalaman", "ประสบการณ์", "doświadczenie",
-        "εμπειρία"
+        "experience", "experiences", "work", "workexperience", "work-experience", "work/experience", "employment", "career", "job", "jobs", "workhistory", "work history", "professional", "prof", 
+        "professionalexperience", "professional background", "employment history", "internship", "internships", "exp", "wrk", "work exp", "prof exp", "occupation", "occupations", "positions", "Work Experience"
     ],
     
     "SKILLS": [
         # English variations
-        "skills", "skill", "abilities", "ability", "expertise", "competencies", "competences", 
-        "capabilities", "capability", "proficiencies", "proficiency", "talents", "talent", "aptitudes", 
-        "technicalskills", "technical skills", "softskill", "soft skills", "hardskills", "hard skills", 
-        "core competencies", "skls", "proficiencies", "competency", "tech skills",
-        # International variations
-        "fähigkeiten", "kenntnisse", "habilidades", "compétences", "competenze", "vaardigheden",
-        "ferdigheter", "competências", "færdigheder", "taidot", "dovednosti", "技能", "スキル",
-        "कौशल", "مهارات", "kỹ năng", "keterampilan", "ทักษะ", "umiejętności", "δεξιότητες"
+        "skills", "skill", "abilities", "ability", "expertise", "competencies", "competences", "capabilities", "capability", "proficiencies", "proficiency", "talents", "talent", "aptitudes", 
+        "technicalskills", "technical skills", "softskill", "soft skills", "hardskills", "hard skills", "core competencies", "skls", "proficiencies", "competency", "tech skills"
     ],
     
     "PROJECTS": [
         # English variations
-        "projects", "project", "works", "portfolio", "showcase", "achievements", "initiatives", 
-        "implementations", "developments", "applications", "software projects", "development projects", 
-        "proj", "key projects", "personal projects", "academic projects", "research projects",
-        # International variations
-        "projekte", "proyectos", "projets", "progetti", "projecten", "prosjekter", "projetos",
-        "projekter", "projektit", "projekty", "项目", "プロジェクト", "परियोजनाएं", "المشاريع",
-        "dự án", "proyek", "โครงการ", "projekty", "έργα"
+        "projects", "project", "works", "portfolio", "showcase", "achievements", "initiatives", "implementations", "developments", "applications", "software projects", "development projects", 
+        "proj", "key projects", "personal projects", "academic projects", "research projects"
     ],
     
     "CONTACT": [
         # English variations
-        "contact", "contacts", "contact information", "contact details", "contact info", "personal",
-        "personal information", "personal details", "personal info", "personal data", "personaldetails", 
-        "personal-details", "info", "details", "get in touch", "reach me", "contact me", "connect",
-        # International variations
-        "kontakt", "contacto", "coordonnées", "contatto", "contactgegevens", "kontaktinformasjon",
-        "contato", "kontaktoplysninger", "yhteystiedot", "kontakt", "联系方式", "連絡先", "संपर्क",
-        "معلومات الاتصال", "thông tin liên hệ", "kontak", "ข้อมูลติดต่อ", "kontakt", "επικοινωνία"
+        "contact", "contacts", "contact information", "contact details", "contact info", "personal","personal information", "personal details", "personal info", "personal data", "personaldetails", 
+        "personal-details", "info", "details", "get in touch", "reach me", "contact me", "connect"
     ],
     
     "SUMMARY": [
         # English variations
-        "summary", "professional summary", "career summary", "profile", "professional profile", 
-        "overview", "about", "about me", "introduction", "bio", "biography", "background", "brief",
-        "executive summary", "career objective", "career goal", "careerobjective", "objective", 
-        "objective", "summary of qualifications", "qualifications summary", "career profile", "summ",
-        "curriculum", "vitae", "cv", "resume summary", "professional background", "candidate summary",
-        # International variations
-        "zusammenfassung", "profil", "resumen", "résumé", "sommario", "samenvatting", "sammendrag",
-        "resumo", "resumé", "yhteenveto", "souhrn", "概要", "要約", "सारांश", "ملخص", "tóm tắt",
-        "ringkasan", "สรุป", "podsumowanie", "περίληψη"
+        "summary", "professional summary", "career summary", "profile", "professional profile", "overview", "about", "about me", "introduction", "bio", "biography", "background", "brief",
+        "executive summary", "career objective", "career goal", "careerobjective", "objective", "objective", "summary of qualifications", "qualifications summary", "career profile", "summ",
+        "curriculum", "vitae", "cv", "resume summary", "professional background", "candidate summary"
     ],
     
     "CERTIFICATIONS": [
         # English variations
-        "certifications", "certification", "certificates", "certificate","CERTIFICATES", "credentials", "licenses", 
-        "license", "accreditation", "accreditations", "qualification", "qualifications", "certs", 
-        "certified", "diplomas", "diploma", "professional certifications", "professional development",
-        # International variations
-        "zertifizierungen", "certificaciones", "certifications", "certificazioni", "certificeringen",
-        "sertifiseringer", "certificações", "certificeringer", "sertifikaatit", "certifikace", "认证",
-        "証明書", "प्रमाणन", "الشهادات", "chứng chỉ", "sertifikasi", "ใบรับรอง", "certyfikaty",
-        "πιστοποιήσεις"
+        "certifications", "certification", "certificates", "certificate","CERTIFICATES", "credentials", "licenses", "license", "accreditation", "accreditations", "qualification", "qualifications", "certs", 
+        "certified", "diplomas", "diploma", "professional certifications", "professional development"
     ],
     
     "AWARDS": [
         # English variations
-        "awards", "award", "honors", "honour", "achievements", "recognition", "accolades", "prizes", 
-        "prize", "distinctions", "accomplishments", "scholarships", "fellowship", "grant", "grants","academic and extracurricular achievements" 
-        "scholarship", "awrds", "achievements", "recognitions", "accolades", "honors and awards","awards and achievements",
-        # International variations
-        "auszeichnungen", "premios", "prix", "premi", "prijzen", "utmerkelser", "prêmios", "priser",
-        "palkinnot", "ocenění", "奖项", "賞", "पुरस्कार", "الجوائز", "giải thưởng", "penghargaan",
-        "รางวัล", "nagrody", "βραβεία"
+        "awards", "award", "honors", "honour", "achievements", "recognition", "accolades", "prizes", "prize", "distinctions", "accomplishments", "scholarships", "fellowship", "grant", "grants","academic and extracurricular achievements" 
+        "scholarship", "awrds", "achievements", "recognitions", "accolades", "honors and awards","awards and achievements"
     ],
     
     "ACHIEVEMENTS": [
         # English variations
-        "achievements", "achievement", "accomplishments", "accomplishment", "successes", "success", 
-        "milestones", "highlights", "key achievements", "significant achievements", "major accomplishments",
-        "achvmts", "success stories", "key accomplishments", "professional achievements", "notable achievements",
-        # International variations
-        "errungenschaften", "logros", "réalisations", "risultati", "prestaties", "prestasjoner",
-        "realizações", "resultater", "saavutukset", "úspěchy", "成就", "実績", "उपलब्धियां",
-        "الإنجازات", "thành tựu", "prestasi", "ความสำเร็จ", "osiągnięcia", "επιτεύγματα"
+        "achievements", "achievement", "accomplishments", "accomplishment", "successes", "success", "milestones", "highlights", "key achievements", "significant achievements", "major accomplishments",
+        "achvmts", "success stories", "key accomplishments", "professional achievements", "notable achievements"
     ],
     
     "LANGUAGES": [
         # English variations
-        "languages", "language", "language skills", "language proficiency", "language proficiencies", 
-        "language abilities", "spoken languages", "linguistic skills", "idiomas", "foreign languages", "lang",
-        # International variations
-        "sprachen", "idiomas", "langues", "lingue", "talen", "språk", "línguas", "sprog", "kielet",
-        "jazyky", "语言", "言語", "भाषाएँ", "اللغات", "ngôn ngữ", "bahasa", "ภาษา", "języki", "γλώσσες"
+        "languages", "language", "language skills", "language proficiency", "language proficiencies", "language abilities", "spoken languages", "linguistic skills", "idiomas", "foreign languages", "lang"
     ],
     
     "PUBLICATIONS": [
         # English variations
         "publications", "publication", "papers", "paper", "articles", "article", "journal articles", 
         "research papers", "published works", "books", "book", "conference proceedings", "conf. proc.", 
-        "pubs", "published papers", "research publications", "academic publications", "scientific publications",
-        # International variations
-        "veröffentlichungen", "publicaciones", "publications", "pubblicazioni", "publicaties",
-        "publikasjoner", "publicações", "publikationer", "julkaisut", "publikace", "出版物", "発表",
-        "प्रकाशन", "المنشورات", "công bố", "publikasi", "สิ่งพิมพ์", "publikacje", "δημοσιεύσεις"
+        "pubs", "published papers", "research publications", "academic publications", "scientific publications"
     ],
     
     "ACTIVITIES": [
@@ -162,53 +102,31 @@ SECTION_KEYWORDS = {
         "activities", "activity", "extracurricular", "extra-curricular", "extracurricular activities", 
         "co-curricular", "cocurricular", "volunteer", "volunteering", "community service", "leadership",
         "involvement", "interests", "hobbies", "hobby", "activities & interests", "activities and interests",
-        "extra", "volunteer work", "community involvement", "participation","leadership & activities", "campus involvement",
-        # International variations
-        "aktivitäten", "actividades", "activités", "attività", "activiteiten", "aktiviteter",
-        "atividades", "aktiviteter", "aktiviteetit", "aktivity", "活动", "アクティビティ", "गतिविधियां",
-        "الأنشطة", "hoạt động", "kegiatan", "กิจกรรม", "działania", "δραστηριότητες"
+        "extra", "volunteer work", "community involvement", "participation","leadership & activities", "campus involvement"
     ],
     
     "REFERENCES": [
         # English variations
         "references", "reference", "referees", "referee", "recommendations", "recommendation", 
-        "recommenders", "recommender", "professional references", "refs", "testimonials", "endorsements",
-        # International variations
-        "referenzen", "referencias", "références", "referenze", "referenties", "referanser",
-        "referências", "referencer", "viitteet", "reference", "推荐人", "参考", "संदर्भ", "المراجع",
-        "người giới thiệu", "referensi", "อ้างอิง", "referencje", "αναφορές"
-    ],
+        "recommenders", "recommender", "professional references", "refs", "testimonials", "endorsements"],
     
     "STRENGTH": [
         # English variations
         "strength", "strengths", "key strengths", "personal strengths", "professional strengths", 
-        "core strengths", "strength areas", "strong points", "strong suits", "forte", "strong areas",
-        # International variations
-        "stärken", "fortalezas", "forces", "punti di forza", "sterke punten", "styrker",
-        "pontos fortes", "styrker", "vahvuudet", "silné stránky", "优势", "強み", "ताकत",
-        "نقاط القوة", "điểm mạnh", "kekuatan", "จุดแข็ง", "mocne strony", "δυνατά σημεία"
+        "core strengths", "strength areas", "strong points", "strong suits", "forte", "strong areas"
     ],
     
     "INTERESTS": [
         # English variations
         "interests", "interest", "hobbies", "hobby", "passions", "passion", "personal interests", 
         "leisure activities", "recreational activities", "pastimes", "pastime", "interests & hobbies",
-        "interests and hobbies", "intrsts", "personal activities", "recreational pursuits",
-        # International variations
-        "interessen", "hobbys", "intereses", "aficiones", "intérêts", "loisirs", "interessi",
-        "hobby", "interesses", "hobbyer", "interesses", "hobbies", "mielenkiinnon kohteet",
-        "harrastukset", "zájmy", "兴趣爱好", "趣味", "रुचियां", "الاهتمامات", "sở thích", "minat",
-        "ความสนใจ", "zainteresowania", "ενδιαφέροντα"
+        "interests and hobbies", "intrsts", "personal activities", "recreational pursuits"
     ],
     
     "DECLARATION": [
         # English variations
         "declaration", "decleration", "verification", "authentication", "confirmation", "affirmation", 
-        "authorization", "declaration of authenticity", "decl", "statement", "personal declaration",
-        # International variations
-        "erklärung", "declaración", "déclaration", "dichiarazione", "verklaring", "erklæring",
-        "declaração", "erklæring", "vakuutus", "prohlášení", "声明", "宣言", "घोषणा", "إعلان",
-        "tuyên bố", "deklarasi", "คำประกาศ", "deklaracja", "δήλωση"
+        "authorization", "declaration of authenticity", "decl", "statement", "personal declaration"
     ],
     
     "OTHER": [
@@ -478,98 +396,6 @@ def analyze_font_statistics(elements):
         "heading_threshold": heading_threshold
     }
 
-# def analyze_layout(elements, pdf_path):
-#     """
-#     Analyze the resume layout to detect columns.
-#     Uses improved histogram analysis with fallback mechanisms.
-    
-#     Args:
-#         elements (list): List of text elements
-#         pdf_path (str): Path to the PDF file
-        
-#     Returns:
-#         float: X-coordinate that separates left and right columns
-#     """
-#     try:
-#         with pdfplumber.open(pdf_path) as pdf:
-#             page_width = pdf.pages[0].width
-#     except Exception as e:
-#         logger.error(f"Failed to open PDF with pdfplumber: {str(e)}")
-#         # Default to 612 (standard letter width in points)
-#         page_width = 612
-    
-#     # Get all x-coordinates
-#     x_coords = [elem["x0"] for elem in elements]
-    
-#     if len(x_coords) < 10:  # Not enough data points for analysis
-#         return page_width * 0.6
-    
-#     # Create histogram to find columns
-#     # Divide page width into bins (e.g., 20 bins)
-#     num_bins = 20
-#     bin_width = page_width / num_bins
-    
-#     # Create histogram
-#     hist, bin_edges = np.histogram(x_coords, bins=num_bins)
-#     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    
-#     # Smooth the histogram to reduce noise
-#     smoothed_hist = np.convolve(hist, [0.2, 0.6, 0.2], mode='same')
-    
-#     # Find peaks in the histogram (potential column starts)
-#     peaks = []
-#     for i in range(1, len(smoothed_hist)-1):
-#         if smoothed_hist[i] > smoothed_hist[i-1] and smoothed_hist[i] > smoothed_hist[i+1]:
-#             # Only consider significant peaks (more than 5% of elements)
-#             if smoothed_hist[i] > len(elements) * 0.05:
-#                 peaks.append((bin_centers[i], smoothed_hist[i]))
-    
-#     # Sort peaks by position (x-coordinate)
-#     peaks.sort(key=lambda x: x[0])
-    
-#     # Check if we have multiple prominent peaks
-#     if len(peaks) >= 2:
-#         # Find valleys between peaks (potential column dividers)
-#         valleys = []
-#         for i in range(len(peaks) - 1):
-#             left_peak = peaks[i]
-#             right_peak = peaks[i + 1]
-            
-#             # Find the minimum height between these peaks
-#             left_idx = int(left_peak[0] / bin_width)
-#             right_idx = int(right_peak[0] / bin_width)
-            
-#             if left_idx < right_idx - 1:  # Ensure there's space between peaks
-#                 valley_idx = left_idx + np.argmin(smoothed_hist[left_idx+1:right_idx]) + 1
-#                 valley_height = smoothed_hist[valley_idx]
-#                 valley_pos = bin_centers[valley_idx]
-                
-#                 # Only consider significant valleys (less than 50% of peak heights)
-#                 if valley_height < 0.5 * min(left_peak[1], right_peak[1]):
-#                     valleys.append((valley_pos, valley_height))
-        
-#         # If we found valleys, use the most significant one
-#         if valleys:
-#             # Sort by height (ascending) to find the deepest valley
-#             valleys.sort(key=lambda x: x[1])
-#             return valleys[0][0]
-    
-#     # Check for two-column layout using simple spatial analysis
-#     # Find the median x-coordinate
-#     median_x = np.median(x_coords)
-    
-#     # Check if there's a gap around the median (suggesting two columns)
-#     left_of_median = [x for x in x_coords if x < median_x - page_width * 0.05]
-#     right_of_median = [x for x in x_coords if x > median_x + page_width * 0.05]
-#     middle_count = len(x_coords) - len(left_of_median) - len(right_of_median)
-    
-#     # If there are few elements in the middle, it's likely a two-column layout
-#     if middle_count < len(x_coords) * 0.2 and left_of_median and right_of_median:
-#         # Find the midpoint of the gap
-#         return median_x
-    
-#     # Default: divide page at 60% width
-#     return page_width * 6
 def detect_column_whitespace(elements, pdf_path):
     """
     Detect columns by finding vertical whitespace gaps in the document.
@@ -1452,4 +1278,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
