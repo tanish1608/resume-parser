@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Constants for section detection
 MIN_HEADING_LENGTH = 2  # Minimum length for heading text
 LINE_SPACING_TOLERANCE = 2  # Tolerance for grouping elements into lines (pixels)
-CONFIDENCE_THRESHOLD = 0.8 # Minimum confidence score to consider a detected heading valid
+CONFIDENCE_THRESHOLD = 0.5 # Minimum confidence score to consider a detected heading valid
 
 # Enhanced Section keywords - expanded with international and abbreviated variations
 SECTION_KEYWORDS = {
