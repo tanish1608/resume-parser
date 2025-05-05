@@ -339,51 +339,53 @@ def extract_text_with_style(pdf_path):
     try:
         doc = fitz.open(pdf_path)
         all_elements = []
-        
-        for page_num, page in enumerate(doc):
-            try:
-                blocks = page.get_text("dict")["blocks"]
-                
-                for block in blocks:
-                      for line in block["lines"]:
-                            if "spans" in line:
-                                for span in line["spans"]:
-                                    text = span.get("text", "").strip()
-                                    if not text:
-                                        continue
-                                    
-                                    # Clean and preprocess the text
-                                    text = preprocess_text(text)                                    
-                                    font_name = span.get("font", "")
-                                    font_size = span.get("size", 0)
-                                    is_bold = (
-                                        "bold" in font_name.lower() or 
-                                        "heavy" in font_name.lower() or
-                                        "black" in font_name.lower() or
-                                        "extrabold" in font_name.lower()
-                                    )
-                                    is_capital = text.isupper() and len(text) > 2  # Check if text is all uppercase
-                                    is_spaced = " " in text and all(len(part) == 1 for part in text.split())  # S P A C E D text
-                                    
-                                    all_elements.append({
-                                        "page": page_num,
-                                        "text": text,
-                                        "x0": span["bbox"][0],
-                                        "y0": span["bbox"][1],
-                                        "x1": span["bbox"][2],
-                                        "y1": span["bbox"][3],
-                                        "font_name": font_name,
-                                        "font_size": font_size,
-                                        "is_bold": is_bold,
-                                        "is_capital": is_capital,
-                                        "is_spaced": is_spaced,
-                                        "is_likely_heading": False,  # Will be determined after analyzing font sizes
-                                        "confidence": 0.0,  # Will store confidence in heading detection
-                                        "section_type": None  # Will store detected section type
-                                    })
-            except Exception as e:
-                logger.warning(f"Error processing page {page_num} in {pdf_path}: {str(e)}")
-                continue
+        try:
+            for page_num, page in enumerate(doc):
+                try:
+                    blocks = page.get_text("dict")["blocks"]
+                    
+                    for block in blocks:
+                        if "lines" in block:
+                            for line in block["lines"]:
+                                    if "spans" in line:
+                                        for span in line["spans"]:
+                                            text = span.get("text", "").strip()
+                                            if not text:
+                                                continue
+                                            
+                                            # Clean and preprocess the text
+                                            text = preprocess_text(text)                                    
+                                            font_name = span.get("font", "")
+                                            font_size = span.get("size", 0)
+                                            is_bold = (
+                                                "bold" in font_name.lower() or 
+                                                "heavy" in font_name.lower() or
+                                                "black" in font_name.lower() or
+                                                "extrabold" in font_name.lower()
+                                            )
+                                            is_capital = text.isupper() and len(text) > 2  # Check if text is all uppercase
+                                            is_spaced = " " in text and all(len(part) == 1 for part in text.split())  # S P A C E D text
+                                            
+                                            all_elements.append({
+                                                "page": page_num,
+                                                "text": text,
+                                                "x0": span["bbox"][0],
+                                                "y0": span["bbox"][1],
+                                                "x1": span["bbox"][2],
+                                                "y1": span["bbox"][3],
+                                                "font_name": font_name,
+                                                "font_size": font_size,
+                                                "is_bold": is_bold,
+                                                "is_capital": is_capital,
+                                                "is_spaced": is_spaced,
+                                                "is_likely_heading": False,  # Will be determined after analyzing font sizes
+                                                "confidence": 0.0,  # Will store confidence in heading detection
+                                                "section_type": None  # Will store detected section type
+                                            })
+                except Exception as e:
+                    logger.warning(f"Error processing page {page_num} in {pdf_path}: {str(e)}")
+        except Exception as e:
+            logger.warning(f"Failed to extract with 'dict' method: {str(e)}")
         
         doc.close()
         return all_elements
@@ -1450,5 +1452,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
