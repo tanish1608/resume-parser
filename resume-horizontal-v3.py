@@ -6,7 +6,7 @@ from collections import defaultdict
 import time
 import logging
 import numpy as np
-import json
+import json  
 
 # Set up logging
 logging.basicConfig(
@@ -70,14 +70,66 @@ SECTION_KEYWORDS = {
     "CERTIFICATIONS": [
         # English variations
         "certifications", "certification", "certificates", "certificate","CERTIFICATES", "credentials", "licenses", "license", "accreditation", "accreditations", "qualification", "qualifications", "certs", 
-        "certified", "diplomas", "diploma", "professional certifications", "professional development"
+        "certified", "diplomas", "diploma", "professional certifications", "professional development", 
     ],
     
-    "AWARDS": [
-        # English variations
-        "awards", "award", "honors", "honour", "achievements", "recognition", "accolades", "prizes", "prize", "distinctions", "accomplishments", "scholarships", "fellowship", "grant", "grants","academic and extracurricular achievements" 
-        "scholarship", "awrds", "achievements", "recognitions", "accolades", "honors and awards","awards and achievements"
+    "TECHNICAL_SKILLS": [
+        "technical skills", "technical", "tech skills", "technical expertise", "technical competencies",
+        "hard skills", "programming skills", "computer skills", "development skills", "engineering skills",
+        "tech stack", "technical proficiencies", "technical capabilities"
     ],
+    
+    "SOFT_SKILLS": [
+        "soft skills", "interpersonal skills", "people skills", "communication skills", "personal skills",
+        "soft abilities", "professional skills", "transferable skills", "personal attributes", 
+        "personal qualities", "behavioral skills"
+    ],
+    
+    "LEADERSHIP": [
+        "leadership", "leadership & event participation", "leadership and event participation",
+        "leadership experience", "leadership roles", "leadership positions", "event participation",
+        "leadership activities", "leadership & activities", "leadership and activities",
+        "leadership skills", "leadership qualities"
+    ],
+    
+    "HACKATHONS": [
+        "hackathons", "hackathon", "hackathon experience", "hackathon participation", 
+        "hack-a-thons", "coding competitions", "coding contests", "programming competitions",
+        "tech competitions", "development contests"
+    ],
+    
+    "CAREER_OBJECTIVE": [
+        "career objective", "objective", "career goal", "professional objective", "job objective",
+        "employment objective", "career aim", "professional goal", "career summary", "professional summary",
+        "career aspiration", "professional aspiration", "objective statement"
+    ],
+    
+    "INTERNSHIPS": [
+        "internships", "internship", "intern", "internship experience", "professional internships",
+        "internship program", "industrial training", "summer internship", "winter internship",
+        "internships and professional experience", "professional experience", "internship and professional experience"
+    ],
+    
+    "EXTRACURRICULAR": [
+        "extracurricular", "extracurricular activities", "extra-curricular", "extra curricular",
+        "extraciruluar", "co-curricular", "co curricular", "after-school activities",
+        "out-of-class activities", "outside activities", "campus involvement", "student organizations",
+        "clubs and organizations", "campus activities", "student activities"
+    ],
+    
+    "ACADEMIC_ACHIEVEMENTS": [
+        "academic achievements", "academic accomplishments", "academic honors",
+        "academic awards", "educational achievements", "academic distinctions",
+        "academic and extracurricular achievements", "academic and extracurricular accomplishments",
+        "academic recognitions", "scholastic achievements", "educational honors",
+        "academic performance", "academic excellence", "academic merit"
+    ],
+    
+    "AWARDS": [  # Expand existing AWARDS category
+        "awards", "award", "honors", "honour", "achievements", "recognition", "accolades",  "prizes", "prize", "distinctions", "accomplishments", "scholarships", "fellowship", "grant", "grants", "scholarship", "awrds", "achievements", "recognitions", "accolades", "honors and awards",
+        "awards and achievements", "awards & achievements", "awards and recognitions", "recognitions and awards", "honors & awards", "distinctions and honors"
+    ],
+
     
     "ACHIEVEMENTS": [
         # English variations
@@ -92,16 +144,13 @@ SECTION_KEYWORDS = {
     
     "PUBLICATIONS": [
         # English variations
-        "publications", "publication", "papers", "paper", "articles", "article", "journal articles", 
-        "research papers", "published works", "books", "book", "conference proceedings", "conf. proc.", 
+        "publications", "publication", "papers", "paper", "articles", "article", "journal articles", "research papers", "published works", "books", "book", "conference proceedings", "conf. proc.", 
         "pubs", "published papers", "research publications", "academic publications", "scientific publications"
     ],
     
     "ACTIVITIES": [
         # English variations
-        "activities", "activity", "extracurricular", "extra-curricular", "extracurricular activities", 
-        "co-curricular", "cocurricular", "volunteer", "volunteering", "community service", "leadership",
-        "involvement", "interests", "hobbies", "hobby", "activities & interests", "activities and interests",
+        "activities", "activity", "extracurricular", "extra-curricular", "extracurricular activities", "co-curricular", "cocurricular", "volunteer", "volunteering", "community service", "leadership","involvement", "interests", "hobbies", "hobby", "activities & interests", "activities and interests",
         "extra", "volunteer work", "community involvement", "participation","leadership & activities", "campus involvement"
     ],
     
@@ -228,7 +277,7 @@ def is_heading_text(text, section_keywords=None):
         "objective": "OBJECTIVE",
         "summary": "SUMMARY",
         "certifications": "CERTIFICATIONS",
-        "awards": "AWARDS",
+        "AWARDS": "AWARDS",
         "achievements": "ACHIEVEMENTS",
         "languages": "LANGUAGES",
         "publications": "PUBLICATIONS",
@@ -236,8 +285,15 @@ def is_heading_text(text, section_keywords=None):
         "strength": "STRENGTH",
         "interests": "INTERESTS",
         "contact": "CONTACT",
-        "internships": "EXPERIENCE",
         "extracurricular": "ACTIVITIES",
+        "TECHNICAL_SKILLS": "SKILLS",
+        "SOFT_SKILLS": "SKILLS",
+        "CAREER_OBJECTIVE": "OBJECTIVE",
+        "LEADERSHIP": "ACTIVITIES",
+        "HACKATHONS": "ACHIEVEMENTS",
+        "EXTRACURRICULAR": "ACTIVITIES",
+        "ACADEMIC_ACHIEVEMENTS": "ACHIEVEMENTS",
+        "INTERNSHIPS": "EXPERIENCE"
     }
     
     for keyword, section_type in common_headings.items():
