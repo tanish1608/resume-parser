@@ -7,6 +7,7 @@ import time
 import logging
 import numpy as np
 import json  
+import math
 
 # Set up logging
 logging.basicConfig(
@@ -19,7 +20,8 @@ logger = logging.getLogger(__name__)
 # Constants for section detection
 MIN_HEADING_LENGTH = 2  # Minimum length for heading text
 LINE_SPACING_TOLERANCE = 2  # Tolerance for grouping elements into lines (pixels)
-CONFIDENCE_THRESHOLD = 0.5 # Minimum confidence score to consider a detected heading valid
+# Adjust this constant in your code
+CONFIDENCE_THRESHOLD = 0.75 # Previously was likely 0.8
 
 # Enhanced Section keywords - expanded with international and abbreviated variations
 SECTION_KEYWORDS = {
@@ -228,7 +230,7 @@ def preprocess_text(text):
 
 def is_heading_text(text, section_keywords=None):
     """
-    Check if the text matches common resume section headings with improved matching.
+    Improved heading detection with better confidence scoring.
     
     Args:
         text (str): The text to check
@@ -242,6 +244,7 @@ def is_heading_text(text, section_keywords=None):
     
     # Normalize and preprocess the text for comparison
     clean = normalize(preprocess_text(text))
+    original_text = text.strip().lower()
     
     if not clean or len(clean) < MIN_HEADING_LENGTH:
         return False, 0.0, None
@@ -250,60 +253,77 @@ def is_heading_text(text, section_keywords=None):
     if clean in section_keywords:
         return True, 1.0, section_keywords[clean]
     
-    # Check for partial matches
-    matches = []
-    
-    # Check if any keyword is fully contained in the text
-    for keyword, section_type in section_keywords.items():
-        if keyword in clean:
-            # Calculate confidence based on keyword length relative to text length
-            confidence = len(keyword) / len(clean)
-            matches.append((confidence, section_type))
-    
-    # Check if the text is fully contained in any keyword (abbreviated form)
-    if len(clean) >= MIN_HEADING_LENGTH + 1:
-        for keyword, section_type in section_keywords.items():
-            if clean in keyword and len(clean) >= len(keyword) * 0.5:  # At least half the keyword
-                # More confidence if the text is a larger portion of the keyword
-                confidence = len(clean) / len(keyword) * 0.9  # Slightly lower than direct match
-                matches.append((confidence, section_type))
-    
-    # Special case for common headings - look for these specific patterns
-    common_headings = {
-        "education": "EDUCATION",
-        "experience": "EXPERIENCE",
-        "skills": "SKILLS",
-        "projects": "PROJECTS",
-        "objective": "OBJECTIVE",
-        "summary": "SUMMARY",
-        "certifications": "CERTIFICATIONS",
-        "AWARDS": "AWARDS",
-        "achievements": "ACHIEVEMENTS",
-        "languages": "LANGUAGES",
-        "publications": "PUBLICATIONS",
-        "activities": "ACTIVITIES",
-        "strength": "STRENGTH",
-        "interests": "INTERESTS",
-        "contact": "CONTACT",
-        "extracurricular": "ACTIVITIES",
-        "TECHNICAL_SKILLS": "SKILLS",
-        "SOFT_SKILLS": "SKILLS",
-        "CAREER_OBJECTIVE": "OBJECTIVE",
-        "LEADERSHIP": "ACTIVITIES",
-        "HACKATHONS": "ACHIEVEMENTS",
-        "EXTRACURRICULAR": "ACTIVITIES",
-        "ACADEMIC_ACHIEVEMENTS": "ACHIEVEMENTS",
-        "INTERNSHIPS": "EXPERIENCE"
+    # Check for full matches with common patterns
+    # Match common patterns like "Technical Skills:" or "EDUCATION"
+    section_patterns = {
+        r"\b(education|academic|degree|qualification)s?\b": "EDUCATION",
+        r"\b(experience|work|employment|job|career|professional)s?\b": "EXPERIENCE",
+        r"\b(skill|ability|proficiency|competency|expertise)s?\b": "SKILLS",
+        r"\b(technical|hard|programming|computer|software|coding)\s+skill": "SKILLS",
+        r"\b(soft|personal|interpersonal|communication)\s+skill": "SKILLS",
+        r"\b(project|portfolio|work|assignment|application)s?\b": "PROJECTS",
+        r"\b(certification|certificate|credential|qualification)s?\b": "CERTIFICATIONS",
+        r"\b(award|honor|achievement|recognition|scholarship)s?\b": "AWARDS",
+        r"\b(language|linguistic|idioma|tongue)\b": "LANGUAGES",
+        r"\b(objective|goal|summary|profile|about)s?\b": "SUMMARY",
+        r"\b(leadership|participation|involvement|activity)s?\b": "ACTIVITIES",
+        r"\b(hackathon|competition|contest|challenge|event)s?\b": "ACTIVITIES",
+        r"\b(reference|recommendation|endorsement|referee)s?\b": "REFERENCES",
+        r"\b(interest|hobby|pastime|leisure|extracurricular)s?\b": "INTERESTS",
+        r"\b(strength|forte|capability|talent|power)s?\b": "STRENGTH",
+        r"\b(contact|detail|information|reach|connect)\b": "CONTACT",
+        r"\b(publication|paper|article|journal|research)s?\b": "PUBLICATIONS",
+        r"\b(internship|training|practical)s?\b": "EXPERIENCE"
     }
     
-    for keyword, section_type in common_headings.items():
-        if keyword in clean or clean in keyword:
-            matches.append((0.8, section_type))  # Higher confidence for these common headings
+    # Check patterns
+    for pattern, section_type in section_patterns.items():
+        if re.search(pattern, original_text, re.IGNORECASE):
+            # Return high confidence if it's a strong match
+            match_strength = len(re.findall(pattern, original_text, re.IGNORECASE))
+            if match_strength > 0:
+                return True, min(0.95, 0.75 + match_strength * 0.1), section_type
+    
+    # Check for partial matches with standard approach
+    matches = []
+    
+    # Check if any keyword is contained in the text
+    for keyword, section_type in section_keywords.items():
+        if keyword in clean:
+            # Calculate confidence based on keyword length and position
+            # Exact match at start of text gets highest confidence
+            if clean.startswith(keyword):
+                confidence = 0.9
+            else:
+                # Otherwise, calculate based on keyword coverage
+                confidence = len(keyword) / len(clean) * 0.8
+            matches.append((confidence, section_type))
+    
+    # Check if the text is contained in any keyword (abbreviated form)
+    if len(clean) >= MIN_HEADING_LENGTH + 1:
+        for keyword, section_type in section_keywords.items():
+            if clean in keyword and len(clean) >= len(keyword) * 0.5:
+                # Confidence based on how much of the keyword is covered
+                confidence = len(clean) / len(keyword) * 0.85
+                matches.append((confidence, section_type))
+    
+    # Special check for title formats with colons 
+    # e.g., "Skills:" or "Technical Experience:"
+    if ":" in original_text:
+        prefix = original_text.split(":")[0].strip().lower()
+        if len(prefix) >= MIN_HEADING_LENGTH:
+            # Check if this prefix matches any keywords
+            for keyword, section_type in section_keywords.items():
+                if prefix.endswith(keyword) or keyword.endswith(prefix):
+                    # Confidence based on length match and position
+                    confidence = min(0.9, 0.7 + len(prefix) / 20)
+                    matches.append((confidence, section_type))
     
     # Find the best match
     if matches:
         best_match = max(matches, key=lambda x: x[0])
-        if best_match[0] >= CONFIDENCE_THRESHOLD:
+        # Lower the threshold for detection to catch more headings
+        if best_match[0] >= CONFIDENCE_THRESHOLD - 0.1:
             return True, best_match[0], best_match[1]
     
     return False, 0.0, None
@@ -535,11 +555,168 @@ def detect_column_whitespace(elements, pdf_path):
     # Fallback to previous method if no clear gap is found
     return page_width 
 
-
+def fallback_rank_based_heading_detection(elements, column_divider):
+    """
+    Fallback function for heading detection based on font size ranking.
+    This function is used when standard methods detect 2 or fewer headings.
+    
+    Args:
+        elements (list): List of text elements
+        column_divider (float): X-coordinate dividing the columns
+        
+    Returns:
+        list: List of identified section headings
+    """
+    logger.info("Using fallback rank-based heading detection")
+    
+    # Filter valid elements (non-empty with positive font size)
+    valid_elements = [
+        e for e in elements 
+        if e["font_size"] > 0 and len(e["text"].strip()) >= MIN_HEADING_LENGTH
+    ]
+    
+    if not valid_elements:
+        logger.warning("No valid elements found for fallback detection")
+        return []
+    
+    # Create a list of unique font sizes in descending order
+    font_sizes = sorted(set(e["font_size"] for e in valid_elements), reverse=True)
+    
+    # Log font size distribution
+    logger.info(f"Font sizes in document (descending): {[round(fs, 2) for fs in font_sizes]}")
+    
+    # Determine key ranks for heading detection
+    # Typically, the largest font (rank 0) is the document title
+    # Second largest (rank 1) and third largest (rank 2) are often section headers
+    key_ranks = [1, 2]  # Focus on these ranks
+    
+    # For very simple documents, we might only have 2-3 font sizes
+    if len(font_sizes) <= 3:
+        # Adjust to include more ranks for simple documents
+        key_ranks = list(range(min(len(font_sizes), 3)))
+    
+    # Map each font size to its rank (0 = largest)
+    size_to_rank = {size: rank for rank, size in enumerate(font_sizes)}
+    
+    # Find elements with key ranks
+    candidate_headings = []
+    
+    for elem in valid_elements:
+        rank = size_to_rank.get(elem["font_size"], -1)
+        
+        # Calculate a base confidence score
+        if rank in key_ranks:
+            # Higher confidence for preferred ranks
+            base_confidence = 0.8 if rank == 1 else 0.75
+        elif rank == 0:  # Largest font - likely document title
+            base_confidence = 0.7
+        elif rank < 5:  # Other large fonts
+            base_confidence = 0.6
+        else:  # Smaller fonts
+            continue  # Skip smaller fonts entirely
+        
+        # Adjust confidence based on styling
+        style_boost = 0.0
+        
+        # Bold text
+        if elem["is_bold"]:
+            style_boost += 0.15
+            
+        # ALL CAPS
+        if elem["is_capital"] and len(elem["text"].strip()) >= 3:
+            style_boost += 0.1
+            
+        # Ends with colon (e.g., "Skills:")
+        if elem["text"].strip().endswith(":"):
+            style_boost += 0.1
+            
+        # Short text (likely a heading)
+        text_length = len(elem["text"].strip())
+        if text_length < 30:
+            length_factor = max(0, 0.1 - (text_length / 300))
+            style_boost += length_factor
+            
+        # Left-aligned
+        if elem["x0"] < 70:  # Near left margin
+            style_boost += 0.05
+        
+        # Check for common section keywords
+        common_keywords = [
+            "education", "experience", "skills", "project", "certification",
+            "award", "achievement", "language", "objective", "summary", 
+            "profile", "contact", "reference", "interest", "publication",
+            "qualification", "training", "leadership", "activity", "strength",
+            "expertise", "technical"
+        ]
+        
+        text_lower = elem["text"].lower()
+        keyword_boost = 0.0
+        
+        if any(keyword in text_lower for keyword in common_keywords):
+            keyword_boost = 0.15
+            
+        # Try formal section type detection
+        is_heading, keyword_confidence, section_type = is_heading_text(elem["text"])
+        if not section_type:
+            print(f"Section type not detected for text: {elem['text']}")
+            # If no formal section type detected, use fallback logic            
+            # Try to infer section type from text
+            if "education" in text_lower or "academic" in text_lower:
+                section_type = "EDUCATION"
+            elif "experience" in text_lower or "work" in text_lower or "employment" in text_lower:
+                section_type = "EXPERIENCE"
+            elif "skill" in text_lower or "technical" in text_lower or "expertise" in text_lower:
+                section_type = "SKILLS"
+            elif "project" in text_lower:
+                section_type = "PROJECTS"
+            elif "certification" in text_lower or "certificate" in text_lower:
+                section_type = "CERTIFICATIONS"
+            elif "award" in text_lower or "achievement" in text_lower or "honor" in text_lower:
+                section_type = "AWARDS"
+            elif "language" in text_lower:
+                section_type = "LANGUAGES"
+            elif "objective" in text_lower or "summary" in text_lower or "profile" in text_lower:
+                section_type = "SUMMARY"
+            elif "contact" in text_lower or "personal" in text_lower:
+                section_type = "CONTACT"
+        
+        # Final confidence calculation
+        final_confidence = min(1.0, base_confidence + style_boost + keyword_boost)
+        
+        # Determine which column this heading belongs to
+        column = "left" if elem["x0"] < column_divider else "right"
+        
+        # Add to candidates if confidence is sufficient
+        if final_confidence >= 0.95:  # Lower threshold for fallback detection
+            candidate_headings.append({
+                "page": elem["page"],
+                "text": elem["text"],
+                "x0": elem["x0"],
+                "y0": elem["y0"],
+                "x1": elem["x1"],
+                "y1": elem["y1"],
+                "type": section_type,
+                "column": column,
+                "confidence": final_confidence,
+                "rank": rank
+            })
+    
+    # If we have too many candidates, filter to keep only the most confident ones
+    if len(candidate_headings) > 15:  # Cap at a reasonable number
+        # Sort by confidence and take the top ones
+        candidate_headings.sort(key=lambda h: h["confidence"], reverse=True)
+        candidate_headings = candidate_headings[:15]
+    
+    # Sort headings by page and y-coordinate for the final output
+    headings = sorted(candidate_headings, key=lambda h: (h["page"], h["y0"]))
+    
+    logger.info(f"Fallback detection found {len(headings)} potential section headings")
+    
+    return headings
 
 def identify_potential_headings(elements, font_stats):
     """
-    Identify potential headings with improved precision to avoid false positives.
+    Identify potential headings with improved confidence scoring.
     
     Args:
         elements (list): List of text elements
@@ -551,101 +728,120 @@ def identify_potential_headings(elements, font_stats):
     if not elements or not font_stats:
         return elements
     
-    heading_threshold = font_stats["heading_threshold"]
+    # Calculate the document-wide font statistics
+    avg_font_size = font_stats["mean"]
     max_font_size = font_stats["max"]
     most_common_size = font_stats["most_common"]
+    median_size = font_stats["median"]
     
-    # Pre-filter to identify obvious headings (EDUCATION, SKILLS, etc.)
-    # These common section names get higher confidence automatically
-    common_section_names = {
-        "education", "experience", "skills", "projects", "certifications", 
-        "languages", "summary", "profile", "objective", "contact", "awards",
-        "achievements", "publications", "references"
-    }
+    # Adjust the heading threshold to be more inclusive
+    # Instead of using a fixed threshold above the mean, use a more adaptive approach
+    heading_base_threshold = max(most_common_size * 1.05, median_size * 1.1)
     
-    # First pass: Mark obvious headings
+    # Find all bold text elements - we'll analyze their sizes to better understand heading patterns
+    bold_elements = [e for e in elements if e["is_bold"]]
+    bold_font_sizes = [e["font_size"] for e in bold_elements if e["font_size"] > 0]
+    
+    # If there are enough bold elements, calculate their own statistics
+    if len(bold_font_sizes) >= 5:
+        bold_median_size = np.median(bold_font_sizes)
+        # Lower the threshold if bold text is used strategically
+        heading_threshold = min(heading_base_threshold, bold_median_size * 0.95)
+    else:
+        heading_threshold = heading_base_threshold
+    
+    # First pass: Reset all elements
     for elem in elements:
-        normalized_text = normalize(preprocess_text(elem["text"])).lower()
-        is_known_heading = False
-        
-        # Check if this is a common section name
-        if normalized_text in common_section_names:
-            elem["is_likely_heading"] = True
-            elem["confidence"] = 0.95  # Very high confidence
-            elem["section_type"] = normalized_text.upper()
-            is_known_heading = True
-        
-        # Check for spaced out text like "S K I L L S"
-        elif elem["is_spaced"] and len(elem["text"]) > 5:
-            text_without_spaces = elem["text"].replace(" ", "").lower()
-            if text_without_spaces in common_section_names:
-                elem["is_likely_heading"] = True
-                elem["confidence"] = 0.9
-                elem["section_type"] = text_without_spaces.upper()
-                is_known_heading = True
-        
-        # Only proceed with standard analysis if not already identified
-        if not is_known_heading:
-            # Reset values for non-obvious headings
-            elem["is_likely_heading"] = False
-            elem["confidence"] = 0.0
-            elem["section_type"] = None
+        elem["is_likely_heading"] = False
+        elem["confidence"] = 0.0
+        elem["section_type"] = None
     
-    # Second pass: Analyze styling and font sizes for non-obvious headings
+    # Second pass: Calculate confidence scores with improved algorithm
     for elem in elements:
-        # Skip elements already identified as headings
-        if elem["is_likely_heading"]:
+        # Skip very short text (likely not headings)
+        if len(elem["text"].strip()) < MIN_HEADING_LENGTH:
             continue
             
-        # Font size analysis - must be significantly larger than common text
-        font_size_confidence = 0.0
-        if elem["font_size"] > heading_threshold:
-            # Must be at least 20% larger than threshold to be considered
-            font_size_confidence = 0.6 * min(1.0, (elem["font_size"] - heading_threshold) / (max_font_size - heading_threshold + 0.001))
+        # Base confidence starts at 0
+        confidence_score = 0.0
         
-        # Style analysis - must have strong styling cues
+        # 1. Font size factor: How much larger is this than the document's typical text?
+        # Using a smoother scaling function
+        if elem["font_size"] > 0:
+            size_ratio = elem["font_size"] / most_common_size
+            # Exponential scaling with smoothing
+            font_size_confidence = min(1.0, max(0, (size_ratio - 1) * 1.5))
+        else:
+            font_size_confidence = 0.0
+            
+        # 2. Styling factor: Bold, all caps, and positioning
         style_confidence = 0.0
-        if elem["is_bold"]:
-            style_confidence += 0.3
-        if elem["is_capital"] and len(elem["text"]) >= 3:  # Must be at least 3 chars
-            style_confidence += 0.3
         
-        # Keyword matching - must be a recognized section name
+        # Bold text is very indicative of headings
+        if elem["is_bold"]:
+            style_confidence += 0.4
+            
+        # All caps are often used for headings
+        if elem["is_capital"] and len(elem["text"]) >= 3:
+            style_confidence += 0.25
+            
+        # Check if text appears to be a single line (may be a heading)
+        if "\n" not in elem["text"] and len(elem["text"].split()) <= 5:
+            style_confidence += 0.15
+            
+        # Position factor - headings often start at the left margin or page edge
+        # This doesn't require column_divider - we just check if it's near either edge
+        page_start = 50  # Assume page margin is within 50 pixels
+        if elem["x0"] <= page_start:
+            style_confidence += 0.1
+            
+        # 3. Keyword matching - is this text similar to common section headers?
         is_heading, keyword_confidence, section_type = is_heading_text(elem["text"])
         
-        # Length constraint - headings should be short
-        length_factor = 1.0 if len(elem["text"]) < 30 else 0.5
+        # 4. Length factor - headings are typically short
+        # Use an exponential decay function - shorter text gets higher scores
+        text_length = len(elem["text"].strip())
+        if text_length <= 30:
+            length_factor = 1.0  # Perfect length
+        else:
+            # Exponential decay for longer text
+            length_factor = max(0.4, math.exp(-0.02 * (text_length - 30)))
+            
+        # Combined confidence score with weighted factors
+        # The weights sum to 1.0
+        confidence_score = (
+            keyword_confidence * 0.35 +  # Keywords are strong indicators
+            font_size_confidence * 0.3 +  # Font size is very important
+            style_confidence * 0.25 +     # Styling matters a lot
+            length_factor * 0.1           # Length is a secondary factor
+        )
         
-        # Combined score with stricter threshold
-        combined_confidence = (
-            keyword_confidence * 0.5 +
-            font_size_confidence * 0.3 +
-            style_confidence * 0.2
-        ) * length_factor
+        # Apply a non-linear scaling to boost mid-to-high confidence scores
+        # This helps prevent the "low confidence" issue
+        if confidence_score > 0.5:
+            # Apply a positive bias to scores above 0.5
+            confidence_score = 0.5 + (confidence_score - 0.5) * 1.5
+            
+        # Ensure we don't exceed 1.0
+        confidence_score = min(1.0, confidence_score)
         
-        # Higher threshold to avoid false positives
-        if combined_confidence >= CONFIDENCE_THRESHOLD + 0.1:  # Add 0.1 for stricter filtering
+        # Apply threshold with reduced stringency
+        if confidence_score >= CONFIDENCE_THRESHOLD - 0.1:  # More inclusive
             elem["is_likely_heading"] = True
-            elem["confidence"] = combined_confidence
+            elem["confidence"] = confidence_score
             elem["section_type"] = section_type
-    
-    # Final cleanup: Remove "OTHER" classifications with low confidence
-    for elem in elements:
-        if elem["is_likely_heading"] and elem["section_type"] == "OTHER":
-            # Require very high confidence for "OTHER" sections
-            if elem["confidence"] < 0.85:
-                elem["is_likely_heading"] = False
-                elem["section_type"] = None
-                elem["confidence"] = 0.0
+            
+            # Extra boost for extremely strong signals
+            if (elem["is_bold"] and elem["is_capital"] and 
+                font_size_confidence > 0.4 and keyword_confidence > 0.6):
+                elem["confidence"] = min(1.0, confidence_score * 1.2)
     
     return elements
-
-
       
 
 def identify_section_headings(elements, column_divider):
     """
-    Identify section headings from elements with improved confidence scoring.
+    Identify section headings with improved confidence handling.
     
     Args:
         elements (list): List of text elements with heading likelihood scores
@@ -656,17 +852,17 @@ def identify_section_headings(elements, column_divider):
     """
     headings = []
     
-    # First sort elements by confidence score (descending)
+    # Sort elements first by confidence score (descending)
     sorted_elements = sorted(elements, key=lambda e: e["confidence"], reverse=True)
     
     # Track which text positions we've already marked as headings
-    # to avoid duplicate/overlapping headings
     heading_positions = set()
     
-    # First pass - collect the most confident headings
+    # First pass - collect all high-confidence headings
+    high_confidence_threshold = 0.75
     for elem in sorted_elements:
-        # Skip if not likely a heading
-        if not elem["is_likely_heading"]:
+        # Only consider high-confidence elements in this pass
+        if elem["confidence"] < high_confidence_threshold or not elem["is_likely_heading"]:
             continue
         
         # Skip if we've already included this position as a heading
@@ -689,7 +885,7 @@ def identify_section_headings(elements, column_divider):
             "y0": elem["y0"],
             "x1": elem["x1"],
             "y1": elem["y1"],
-            "type": elem["section_type"] or "OTHER",  # Default to OTHER if type is None
+            "type": elem["section_type"] or "OTHER",
             "column": column,
             "confidence": elem["confidence"]
         })
@@ -697,95 +893,173 @@ def identify_section_headings(elements, column_divider):
         # Mark this position as used
         heading_positions.add(position_key)
     
-    # Second pass - try to identify missed headings by proximity
-    # This helps find section headings that might not match keywords but
-    # have similar formatting to other headings
-    if headings:
-        # Calculate average y-distance between headings on the same page and column
-        y_distances = []
-        for i in range(len(headings) - 1):
-            for j in range(i + 1, len(headings)):
-                if (headings[i]["page"] == headings[j]["page"] and 
-                    headings[i]["column"] == headings[j]["column"]):
-                    y_distances.append(abs(headings[i]["y0"] - headings[j]["y0"]))
+    # Second pass - collect medium confidence headings
+    for elem in sorted_elements:
+        # Skip if not likely a heading or high confidence (already processed)
+        if not elem["is_likely_heading"] or elem["confidence"] >= high_confidence_threshold:
+            continue
         
-        avg_y_distance = np.mean(y_distances) if y_distances else 100  # Default if no pairs
+        # Skip if we've already included this position as a heading
+        position_key = (elem["page"], round(elem["y0"]), round(elem["x0"]))
+        if position_key in heading_positions:
+            continue
         
-        # Find potential headings based on formatting similarity
-        for elem in elements:
-            # Skip elements already identified as headings
-            position_key = (elem["page"], round(elem["y0"]), round(elem["x0"]))
-            if position_key in heading_positions:
-                continue
-                
-            # Skip very short text
-            if len(elem["text"].strip()) < MIN_HEADING_LENGTH:
-                continue
+        # Skip very short text
+        if len(elem["text"].strip()) < MIN_HEADING_LENGTH:
+            continue
+        
+        # Apply formatting-based confidence boost
+        boosted_confidence = elem["confidence"]
+        
+        # Boost confidence if this follows typical heading patterns
+        
+        # 1. Boost for all caps text
+        if elem["is_capital"] and len(elem["text"]) >= 3:
+            boosted_confidence = min(0.9, boosted_confidence + 0.1)
             
-            # Find headings on the same page
-            same_page_headings = [h for h in headings if h["page"] == elem["page"]]
-            if not same_page_headings:
-                continue
-                
-            # Check if this element has similar formatting to existing headings
-            similar_format = False
-            for heading in same_page_headings:
-                # Find the corresponding element for the heading
-                heading_elem = None
-                for e in elements:
-                    if (e["page"] == heading["page"] and 
-                        abs(e["y0"] - heading["y0"]) < 2 and 
-                        abs(e["x0"] - heading["x0"]) < 2):
-                        heading_elem = e
-                        break
-                
-                if not heading_elem:
-                    continue
-                
-                # Compare font size (within 10%)
-                font_size_match = abs(elem["font_size"] - heading_elem["font_size"]) / heading_elem["font_size"] < 0.1
-                # Compare styling
-                style_match = (elem["is_bold"] == heading_elem["is_bold"] and 
-                               elem["is_capital"] == heading_elem["is_capital"])
-                
-                if font_size_match and style_match:
-                    similar_format = True
-                    break
+        # 2. Boost for text with colon ending (e.g., "Skills:")
+        if elem["text"].strip().endswith(":"):
+            boosted_confidence = min(0.9, boosted_confidence + 0.15)
             
-            if similar_format:
-                # Check if this element is positioned reasonably (not too close to other headings)
-                too_close = False
-                for heading in same_page_headings:
-                    if heading["column"] == ("left" if elem["x0"] < column_divider else "right"):
-                        if abs(elem["y0"] - heading["y0"]) < avg_y_distance * 0.5:
-                            too_close = True
-                            break
-                
-                if not too_close:
-                    # Determine which column this heading belongs to
-                    column = "left" if elem["x0"] < column_divider else "right"
-                    
-                    # Attempt to infer section type from text
-                    _, _, section_type = is_heading_text(elem["text"])
-                    
-                    # Add to headings list with a lower confidence
-                    headings.append({
-                        "page": elem["page"],
-                        "text": elem["text"],
-                        "x0": elem["x0"],
-                        "y0": elem["y0"],
-                        "x1": elem["x1"],
-                        "y1": elem["y1"],
-                        "type": section_type or "OTHER",  # Default to OTHER if type is None
-                        "column": column,
-                        "confidence": 0.6  # Lower confidence for inferred headings
-                    })
-                    
-                    # Mark this position as used
-                    heading_positions.add(position_key)
+        # 3. Boost for short text (likely a heading)
+        if len(elem["text"].strip()) < 20:
+            boost_factor = 0.05 + max(0, (20 - len(elem["text"].strip())) / 100)
+            boosted_confidence = min(0.9, boosted_confidence + boost_factor)
+            
+        # 4. Boost for text at the left margin
+        column_margin = column_divider * 0.1 if elem["x0"] < column_divider else column_divider * 1.1
+        if abs(elem["x0"] - column_margin) < 20:
+            boosted_confidence = min(0.9, boosted_confidence + 0.05)
+        
+        # Determine which column this heading belongs to
+        column = "left" if elem["x0"] < column_divider else "right"
+        
+        # Add to headings list
+        headings.append({
+            "page": elem["page"],
+            "text": elem["text"],
+            "x0": elem["x0"],
+            "y0": elem["y0"],
+            "x1": elem["x1"],
+            "y1": elem["y1"],
+            "type": elem["section_type"] or "OTHER",
+            "column": column,
+            "confidence": boosted_confidence  # Use the boosted confidence
+        })
+        
+        # Mark this position as used
+        heading_positions.add(position_key)
     
-    # Sort headings by page and y-coordinate
+    # Third pass - boost confidence for any headings that follow heading patterns
+    # Look for structural patterns in the document
+    if headings:
+        # Sort headings by page and y-coordinate 
+        sorted_headings = sorted(headings, key=lambda h: (h["page"], h["y0"]))
+        
+        # Find common x-coordinates for headings
+        x_coordinates = [h["x0"] for h in sorted_headings]
+        common_x = None
+        if len(x_coordinates) >= 3:
+            # Use a simple clustering approach
+            x_clusters = {}
+            tolerance = 10  # pixels
+            for x in x_coordinates:
+                matched = False
+                for center in x_clusters:
+                    if abs(x - center) <= tolerance:
+                        x_clusters[center] += 1
+                        matched = True
+                        break
+                if not matched:
+                    x_clusters[x] = 1
+            
+            # Find the most common x-coordinate
+            if x_clusters:
+                common_x = max(x_clusters.items(), key=lambda x: x[1])[0]
+        
+        # Boost confidence for headings at common x-coordinates
+        if common_x is not None:
+            for heading in headings:
+                if abs(heading["x0"] - common_x) <= 10 and heading["confidence"] < 0.9:
+                    heading["confidence"] = min(0.9, heading["confidence"] + 0.15)
+    
+    # Sort headings by page and y-coordinate for final output
     return sorted(headings, key=lambda h: (h["page"], h["y0"]))
+
+
+
+def post_process_headings(headings, elements):
+    """
+    Apply post-processing to ensure consistency in heading detection.
+    
+    Args:
+        headings (list): List of identified section headings
+        elements (list): List of all text elements
+        
+    Returns:
+        list: Updated headings with improved confidence
+    """
+    if not headings or len(headings) < 2:
+        return headings
+    
+    # Group headings by page for analysis
+    headings_by_page = {}
+    for h in headings:
+        page = h["page"]
+        if page not in headings_by_page:
+            headings_by_page[page] = []
+        headings_by_page[page].append(h)
+    
+    # Check for consistent formatting within each page
+    for page, page_headings in headings_by_page.items():
+        if len(page_headings) < 2:
+            continue
+        
+        # Analyze format consistency
+        is_bold_counts = defaultdict(int)
+        is_caps_counts = defaultdict(int)
+        font_sizes = []
+        
+        for heading in page_headings:
+            # Find the corresponding element
+            for elem in elements:
+                if (elem["page"] == heading["page"] and 
+                    abs(elem["y0"] - heading["y0"]) < 2 and 
+                    abs(elem["x0"] - heading["x0"]) < 2):
+                    
+                    is_bold_counts[elem["is_bold"]] += 1
+                    is_caps_counts[elem["is_capital"]] += 1
+                    if elem["font_size"] > 0:
+                        font_sizes.append(elem["font_size"])
+                    break
+        
+        # Determine the dominant formatting
+        dominant_bold = max(is_bold_counts.items(), key=lambda x: x[1])[0] if is_bold_counts else None
+        dominant_caps = max(is_caps_counts.items(), key=lambda x: x[1])[0] if is_caps_counts else None
+        avg_font_size = np.mean(font_sizes) if font_sizes else None
+        
+        # Boost confidence for headings that match the dominant formatting
+        for heading in page_headings:
+            # Find the corresponding element again
+            for elem in elements:
+                if (elem["page"] == heading["page"] and 
+                    abs(elem["y0"] - heading["y0"]) < 2 and 
+                    abs(elem["x0"] - heading["x0"]) < 2):
+                    
+                    format_matches = 0
+                    if dominant_bold is not None and elem["is_bold"] == dominant_bold:
+                        format_matches += 1
+                    if dominant_caps is not None and elem["is_capital"] == dominant_caps:
+                        format_matches += 1
+                    if avg_font_size is not None and abs(elem["font_size"] - avg_font_size) < 2:
+                        format_matches += 1
+                    
+                    # Boost confidence based on format consistency
+                    if format_matches >= 2 and heading["confidence"] < 0.9:
+                        heading["confidence"] = min(0.95, heading["confidence"] + 0.2)
+                    break
+    
+    return headings
 
 def extract_sections(pdf_path, headings, elements, column_divider):
     """
@@ -1140,6 +1414,19 @@ def parse_resume(pdf_path, output_folder=None, visualize=True):
         # Identify section headings with confidence scores
         headings = identify_section_headings(elements, column_divider)
         logger.info(f"Identified {len(headings)} section headings")
+
+        headings = post_process_headings(headings, elements)
+        logger.info(f"After post-processing: {len(headings)} section headings")
+        
+        # NEW: If 2 or fewer headings found, apply fallback detection
+        if len(headings) <= 2:
+            logger.warning(f"Only {len(headings)} headings found, applying fallback detection")
+            fallback_headings = fallback_rank_based_heading_detection(elements, column_divider)
+            
+            if fallback_headings and len(fallback_headings) > len(headings):
+                headings = fallback_headings
+                logger.info(f"Using {len(headings)} headings from fallback detection")
+        
         
         # Count headings in each column
         left_headings = [h for h in headings if h["column"] == "left"]
@@ -1149,8 +1436,9 @@ def parse_resume(pdf_path, output_folder=None, visualize=True):
         
         # Log each heading with confidence
         for heading in headings:
+            rank_info = f", rank: {heading.get('rank', 'N/A')}" if "rank" in heading else ""
             logger.info(f"  - {heading['text']} ({heading['type']}, {heading['column']} column, "
-                       f"confidence: {heading.get('confidence', 0.0):.2f})")
+                       f"confidence: {heading.get('confidence', 0.0):.2f}{rank_info})")
         
         # Extract sections with improved error handling
         sections = extract_sections(pdf_path, headings, elements, column_divider)
