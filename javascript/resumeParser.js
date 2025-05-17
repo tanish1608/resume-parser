@@ -1,14 +1,10 @@
-// Resume Parser in JavaScript
-// Using PDF.js for Node.js environment
-
-// Required dependencies:
-// npm install pdfjs-dist@2.16.105 jsdom canvas mathjs pdf-lib
-
 // Import required libraries
 const fs = require('fs');
 const path = require('path');
 const math = require('mathjs');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const fallbackParser = require('./fallback-parser');
+
 
 // Set up DOM environment for PDF.js
 const { JSDOM } = require('jsdom');
@@ -32,7 +28,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = path.join(
 // Constants for section detection
 const MIN_HEADING_LENGTH = 2;  // Minimum length for heading text
 const LINE_SPACING_TOLERANCE = 2;  // Tolerance for grouping elements into lines (pixels)
-const CONFIDENCE_THRESHOLD = 0.75; // Threshold for heading detection confidence
+const CONFIDENCE_THRESHOLD = 0.71; // Threshold for heading detection confidence
 
 // Enhanced Section keywords - similar to your Python implementation
 const SECTION_KEYWORDS = {
@@ -90,7 +86,13 @@ const SECTION_KEYWORDS = {
         "credentials", "licenses", "license", "accreditation", "accreditations", 
         "qualification", "qualifications", "certs", "certified", "diplomas", "diploma", 
         "professional certifications", "professional development"
-    ]
+    ],
+    "LANGUAGES": [
+    "languages", "language", "language skills", "language proficiency", "language proficiencies", 
+    "language abilities", "spoken languages", "linguistic skills", "idiomas", "foreign languages",
+    "multilingual", "bilingual", "fluency", "lang", "linguistic", "spoken",
+    "lang proficiency", "language competency", "fluent in", "native", "mother tongue"
+]
     // Other sections can be added as needed
 };
 
@@ -103,6 +105,17 @@ Object.entries(SECTION_KEYWORDS).forEach(([sectionType, keywords]) => {
 });
 
 // Helper functions
+function shouldUseFallback(pdfPath, elements, headings) {
+  console.log("heading-l",headings.length);
+
+  if (!headings || headings.length < 3 || headings.length > 7) {
+      // Log the decision factors
+    console.log(`- Has too few headings (${headings.length})`);
+    return true;
+  }
+ 
+}
+
 function normalize(text) {
     // Normalize text by removing whitespace and converting to lowercase
     if (!text) return "";
@@ -212,7 +225,7 @@ function isHeadingText(text, sectionKeywords = null) {
     if (clean.length >= MIN_HEADING_LENGTH + 1) {
         Object.entries(sectionKeywords).forEach(([keyword, sectionType]) => {
             if (keyword.includes(clean) && clean.length >= keyword.length * 0.5) {
-                const confidence = (clean.length / keyword.length) * 0.85;
+                const confidence = (clean.length / keyword.length) * 0.7;
                 matches.push([confidence, sectionType]);
             }
         });
@@ -713,7 +726,7 @@ function identifySectionHeadings(elements, columnDivider) {
         
         // 1. Boost for all caps text
         if (elem.isCapital && elem.text.length >= 3) {
-            boostedConfidence = Math.min(0.9, boostedConfidence + 0.1);
+            boostedConfidence = Math.min(0.9, boostedConfidence + 0.15);
         }
         
         // 2. Boost for text with colon ending (e.g., "Skills:")
@@ -997,7 +1010,8 @@ async function parseResume(pdfPath) {
         const elements = await extractTextWithStyle(pdfPath);
         if (!elements || elements.length === 0) {
             console.error(`Failed to extract text elements from ${pdfPath}`);
-            return null;
+            console.log(`Trying fallback parser due to text extraction failure.`);
+            return await fallbackParser.parseResumeTextBased(pdfPath);
         }
         
         console.log(`Extracted ${elements.length} text elements`);
@@ -1019,6 +1033,13 @@ async function parseResume(pdfPath) {
         // Identify section headings with confidence scores
         const headings = identifySectionHeadings(enhancedElements, columnDivider);
         console.log(`Identified ${headings.length} section headings`);
+
+        // Early check for fallback - if we don't have enough headings, switch to fallback
+        if (shouldUseFallback(pdfPath, elements, headings)) {
+            console.log(`Using fallback parser for ${pdfPath} due to insufficient heading detection.`);
+            return await fallbackParser.parseResumeTextBased(pdfPath);
+            
+        }
         
         // Count headings in each column
         const leftHeadings = headings.filter(h => h.column === "left");
@@ -1035,6 +1056,16 @@ async function parseResume(pdfPath) {
         // Extract sections
         const sections = extractSections(headings, enhancedElements, columnDivider);
         console.log(`Extracted ${Object.keys(sections).length} sections`);
+
+       let emptySections = 0;
+       let totalSections = Object.keys(sections).length;
+
+
+        // Allow up to 2 empty sections before switching to fallback
+        if (headings.length > totalSections + 1) {
+            console.log(`Using fallback parser for ${pdfPath} due to ${totalSections} sections having insufficient content.`);
+            return await fallbackParser.parseResumeTextBased(pdfPath);
+        }
         
         // Extract text from each section
         const sectionTexts = extractSectionText(sections);
@@ -1050,161 +1081,207 @@ async function parseResume(pdfPath) {
             headings: headings,
             elements: enhancedElements, // Add elements to the result for visualization
             sectionTexts: sectionTexts,
-            processingTime: processingTime
+            processingTime: processingTime,
+            usedFallback: false
         };
         
         return result;
     } catch (e) {
         console.error(`Error processing resume ${pdfPath}: ${e.message}`);
         console.error(e.stack);
-        return null;
+        
+        // Final fallback - if anything failed, try the text-based approach
+        try {
+            console.log(`Trying fallback parser after error in main parser for ${pdfPath}.`);
+            return await fallbackParser.parseResumeTextBased(pdfPath);
+        } catch (fallbackError) {
+            console.error(`Both main and fallback parsers failed for ${pdfPath}`);
+            return null;
+        }
     }
 }
 
 // Visualize sections on the PDF
-async function visualizeSections(pdfPath, sections, headings, columnDivider, outputFolder = null) {
+async function visualizeSections(pdfPath, result, outputFolder = null) {
     try {
-        // Define colors for different section types (RGB, values from 0-1)
-        const colors = {
-            "EDUCATION": rgb(0, 0, 1),      // Blue
-            "EXPERIENCE": rgb(0, 0.6, 0),   // Green
-            "SKILLS": rgb(1, 0.5, 0),       // Orange
-            "PROJECTS": rgb(0.5, 0, 0.5),   // Purple
-            "CONTACT": rgb(0, 0.6, 0.6),    // Teal
-            "SUMMARY": rgb(0.6, 0, 0),      // Dark Red
-            "CERTIFICATIONS": rgb(0.7, 0.7, 0), // Olive
-            "AWARDS": rgb(0.8, 0.4, 0),     // Brown
-            "ACHIEVEMENTS": rgb(0, 0.4, 0.8), // Light Blue
-            "LANGUAGES": rgb(0.5, 0.5, 0),  // Olive Green
-            "PUBLICATIONS": rgb(0.8, 0.2, 0.2), // Red
-            "ACTIVITIES": rgb(0.2, 0.5, 0.8), // Light Blue
-            "REFERENCES": rgb(0.4, 0.4, 0.8), // Purple Blue
-            "STRENGTH": rgb(0.6, 0.4, 0.2), // Brown
-            "INTERESTS": rgb(0.3, 0.7, 0.3), // Light Green
-            "OTHER": rgb(0.3, 0.3, 0.3)     // Dark Gray
-        };
-        
-        // Read the original PDF file
-        const pdfBytes = fs.readFileSync(pdfPath);
-        const pdfDoc = await PDFDocument.load(pdfBytes);
-        const pages = pdfDoc.getPages();
-        
-        // Load a font
-        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-        const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-        
-        // Get PDF dimensions from the first page
-        const { width, height } = pages[0].getSize();
-        
-        // Draw column divider on each page
-        pages.forEach(page => {
-            // Draw a dashed vertical line for the column divider
-            page.drawLine({
-                start: { x: columnDivider, y: 0 },
-                end: { x: columnDivider, y: height },
-                thickness: 0.5,
-                color: rgb(0.5, 0.5, 0.5),
-                dashArray: [3, 3] // Create a dashed line
-            });
-        });
-        
-        // Draw heading labels and rectangles
-        headings.forEach(heading => {
-            if (heading.page >= pages.length) return; // Skip if page doesn't exist
-            
-            const page = pages[heading.page];
-            const headingType = heading.type;
-            const color = colors[headingType] || colors["OTHER"];
-            
-            // Convert y-coordinate (PDF uses bottom-left origin)
-            const pdfY = height - heading.y0;
-            
-            // Draw a label above the heading
-            page.drawText(`${headingType}`, {
-                x: heading.x0,
-                y: pdfY + 10, // Position above the heading
-                size: 8,
-                font: font,
-                color: color
-            });
-            
-            // Draw a rectangle around the heading
-            page.drawRectangle({
-                x: heading.x0 - 2,
-                y: pdfY - (heading.y1 - heading.y0), // Account for height
-                width: heading.x1 - heading.x0 + 4,
-                height: heading.y1 - heading.y0 + 4,
-                borderColor: color,
-                borderWidth: 1,
-                opacity: 0.9
-            });
-        });
-        
-        // Draw section content boxes
-        Object.entries(sections).forEach(([sectionKey, sectionData]) => {
-            const sectionType = sectionData.heading.type;
-            const pageElements = {};
-            
-            // Group elements by page
-            sectionData.elements.forEach(elem => {
-                if (!pageElements[elem.page]) {
-                    pageElements[elem.page] = [];
+        // Check if this is a fallback result
+        if (result.usedFallback) {
+            try {
+                // Create a text-based visualization instead
+                const visualizationContent = Object.entries(result.sectionTexts)
+                    .map(([type, content]) => `=== ${type} ===\n${content}\n`)
+                    .join('\n');
+                
+                // Determine output path
+                let outPath;
+                if (outputFolder) {
+                    if (!fs.existsSync(outputFolder)) {
+                        fs.mkdirSync(outputFolder, { recursive: true });
+                    }
+                    const baseName = path.basename(pdfPath);
+                    outPath = path.join(outputFolder, path.parse(baseName).name + "_fallback_sections.txt");
+                } else {
+                    outPath = path.join(
+                        path.dirname(pdfPath), 
+                        path.parse(path.basename(pdfPath)).name + "_fallback_sections.txt"
+                    );
                 }
-                pageElements[elem.page].push(elem);
-            });
+                
+                // Write the text visualization
+                fs.writeFileSync(outPath, visualizationContent);
+                console.log(`Fallback text visualization saved to: ${outPath}`);
+                
+                return outPath;
+            } catch (e) {
+                console.error(`Error creating fallback visualization: ${e.message}`);
+                return null;
+            }
+        } else {
+            // For non-fallback results, we need to extract sections and do visualization
+            const sections = extractSections(result.headings, result.elements, result.columnDivider);
             
-            // Process each page
-            Object.entries(pageElements).forEach(([pageNum, elements]) => {
-                if (parseInt(pageNum) >= pages.length) return; // Skip if page doesn't exist
-                
-                const page = pages[parseInt(pageNum)];
-                
-                // Find the bounds of all elements in this section on this page
-                const x0 = Math.min(...elements.map(e => e.x0));
-                const y0 = Math.min(...elements.map(e => e.y0));
-                const x1 = Math.max(...elements.map(e => e.x1));
-                const y1 = Math.max(...elements.map(e => e.y1));
-                
-                // Get the color for this section
-                const color = colors[sectionType] || colors["OTHER"];
-                
-                // Draw a rectangle around the section content (with PDF coordinates)
-                page.drawRectangle({
-                    x: x0 - 5,
-                    y: height - y1 - 5, // Bottom of content
-                    width: x1 - x0 + 10,
-                    height: y1 - y0 + 10,
-                    borderColor: color,
-                    borderWidth: 1.5,
-                    opacity: 0.2,
-                    borderOpacity: 0.8,
-                    borderDashArray: [5, 5] // Dashed border
+            // Define colors for different section types (RGB, values from 0-1)
+            const colors = {
+                "EDUCATION": rgb(0, 0, 1),      // Blue
+                "EXPERIENCE": rgb(0, 0.6, 0),   // Green
+                "SKILLS": rgb(1, 0.5, 0),       // Orange
+                "PROJECTS": rgb(0.5, 0, 0.5),   // Purple
+                "CONTACT": rgb(0, 0.6, 0.6),    // Teal
+                "SUMMARY": rgb(0.6, 0, 0),      // Dark Red
+                "CERTIFICATIONS": rgb(0.7, 0.7, 0), // Olive
+                "AWARDS": rgb(0.8, 0.4, 0),     // Brown
+                "ACHIEVEMENTS": rgb(0, 0.4, 0.8), // Light Blue
+                "LANGUAGES": rgb(0.5, 0.5, 0),  // Olive Green
+                "PUBLICATIONS": rgb(0.8, 0.2, 0.2), // Red
+                "ACTIVITIES": rgb(0.2, 0.5, 0.8), // Light Blue
+                "REFERENCES": rgb(0.4, 0.4, 0.8), // Purple Blue
+                "STRENGTH": rgb(0.6, 0.4, 0.2), // Brown
+                "INTERESTS": rgb(0.3, 0.7, 0.3), // Light Green
+                "OTHER": rgb(0.3, 0.3, 0.3)     // Dark Gray
+            };
+            
+            // Read the original PDF file
+            const pdfBytes = fs.readFileSync(pdfPath);
+            const pdfDoc = await PDFDocument.load(pdfBytes);
+            const pages = pdfDoc.getPages();
+            
+            // Load a font
+            const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+            const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+            
+            // Get PDF dimensions from the first page
+            const { width, height } = pages[0].getSize();
+            
+            // Draw column divider on each page
+            pages.forEach(page => {
+                // Draw a dashed vertical line for the column divider
+                page.drawLine({
+                    start: { x: result.columnDivider, y: 0 },
+                    end: { x: result.columnDivider, y: height },
+                    thickness: 0.5,
+                    color: rgb(0.5, 0.5, 0.5),
+                    dashArray: [3, 3] // Create a dashed line
                 });
             });
-        });
-        
-        // Determine output path
-        let outPath;
-        if (outputFolder) {
-            // Create output folder if it doesn't exist
-            if (!fs.existsSync(outputFolder)) {
-                fs.mkdirSync(outputFolder, { recursive: true });
+            
+            // Draw heading labels and rectangles
+            result.headings.forEach(heading => {
+                if (heading.page >= pages.length) return; // Skip if page doesn't exist
+                
+                const page = pages[heading.page];
+                const headingType = heading.type;
+                const color = colors[headingType] || colors["OTHER"];
+                
+                // Convert y-coordinate (PDF uses bottom-left origin)
+                const pdfY = height - heading.y0;
+                
+                // Draw a label above the heading
+                page.drawText(`${headingType}`, {
+                    x: heading.x0,
+                    y: pdfY + 10, // Position above the heading
+                    size: 8,
+                    font: font,
+                    color: color
+                });
+                
+                // Draw a rectangle around the heading
+                page.drawRectangle({
+                    x: heading.x0 - 2,
+                    y: pdfY - (heading.y1 - heading.y0), // Account for height
+                    width: heading.x1 - heading.x0 + 4,
+                    height: heading.y1 - heading.y0 + 4,
+                    borderColor: color,
+                    borderWidth: 1,
+                    opacity: 0.9
+                });
+            });
+            
+            // Draw section content boxes
+            Object.entries(sections).forEach(([sectionKey, sectionData]) => {
+                const sectionType = sectionData.heading.type;
+                const pageElements = {};
+                
+                // Group elements by page
+                sectionData.elements.forEach(elem => {
+                    if (!pageElements[elem.page]) {
+                        pageElements[elem.page] = [];
+                    }
+                    pageElements[elem.page].push(elem);
+                });
+                
+                // Process each page
+                Object.entries(pageElements).forEach(([pageNum, elements]) => {
+                    if (parseInt(pageNum) >= pages.length) return; // Skip if page doesn't exist
+                    
+                    const page = pages[parseInt(pageNum)];
+                    
+                    // Find the bounds of all elements in this section on this page
+                    const x0 = Math.min(...elements.map(e => e.x0));
+                    const y0 = Math.min(...elements.map(e => e.y0));
+                    const x1 = Math.max(...elements.map(e => e.x1));
+                    const y1 = Math.max(...elements.map(e => e.y1));
+                    
+                    // Get the color for this section
+                    const color = colors[sectionType] || colors["OTHER"];
+                    
+                    // Draw a rectangle around the section content (with PDF coordinates)
+                    page.drawRectangle({
+                        x: x0 - 5,
+                        y: height - y1 - 5, // Bottom of content
+                        width: x1 - x0 + 10,
+                        height: y1 - y0 + 10,
+                        borderColor: color,
+                        borderWidth: 1.5,
+                        opacity: 0.2,
+                        borderOpacity: 0.8,
+                        borderDashArray: [5, 5] // Dashed border
+                    });
+                });
+            });
+            
+            // Determine output path
+            let outPath;
+            if (outputFolder) {
+                // Create output folder if it doesn't exist
+                if (!fs.existsSync(outputFolder)) {
+                    fs.mkdirSync(outputFolder, { recursive: true });
+                }
+                const baseName = path.basename(pdfPath);
+                outPath = path.join(outputFolder, path.parse(baseName).name + "_highlighted.pdf");
+            } else {
+                outPath = path.join(
+                    path.dirname(pdfPath), 
+                    path.parse(path.basename(pdfPath)).name + "_highlighted.pdf"
+                );
             }
-            const baseName = path.basename(pdfPath);
-            outPath = path.join(outputFolder, path.parse(baseName).name + "_highlighted.pdf");
-        } else {
-            outPath = path.join(
-                path.dirname(pdfPath), 
-                path.parse(path.basename(pdfPath)).name + "_highlighted.pdf"
-            );
+            
+            // Save the annotated PDF
+            const pdfBytesModified = await pdfDoc.save();
+            fs.writeFileSync(outPath, pdfBytesModified);
+            console.log(`Annotated PDF saved to: ${outPath}`);
+            
+            return outPath;
         }
-        
-        // Save the annotated PDF
-        const pdfBytesModified = await pdfDoc.save();
-        fs.writeFileSync(outPath, pdfBytesModified);
-        console.log(`Annotated PDF saved to: ${outPath}`);
-        
-        return outPath;
     } catch (e) {
         console.error(`Error creating visualization for ${pdfPath}: ${e.message}`);
         console.error(e.stack);
@@ -1238,24 +1315,24 @@ async function processResumeFolder(folderPath, outputFolder = null, visualize = 
     
     // Process files sequentially
     const results = [];
+    const fallbackResults = [];
     
     for (let i = 0; i < pdfFiles.length; i++) {
         const pdfPath = pdfFiles[i];
         try {
-            console.log(`Processing file ${i+1}/${pdfFiles.length}: ${path.basename(pdfPath)}`);
+            console.log(`\nProcessing file ${i+1}/${pdfFiles.length}: ${path.basename(pdfPath)}`);
             
             const result = await parseResume(pdfPath);
             if (result) {
-                // Create visualized PDF if requested
+                // Track whether fallback was used
+                if (result.usedFallback) {
+                    fallbackResults.push(pdfPath);
+                    console.log(`Used fallback parser for: ${path.basename(pdfPath)}`);
+                }
+                
+                // Create visualization if requested
                 if (visualize) {
-                    const sections = extractSections(result.headings, result.elements, result.columnDivider);
-                    const outPath = await visualizeSections(
-                        pdfPath, 
-                        sections, 
-                        result.headings, 
-                        result.columnDivider, 
-                        outputFolder
-                    );
+                    const outPath = await visualizeSections(pdfPath, result, outputFolder);
                     result.outPath = outPath;
                 }
                 
@@ -1267,23 +1344,25 @@ async function processResumeFolder(folderPath, outputFolder = null, visualize = 
                 const serializableResult = {
                     pdfPath: pdfPath,
                     outPath: result.outPath,
+                    usedFallback: result.usedFallback,
                     columnDivider: result.columnDivider,
                     sectionTexts: result.sectionTexts,
                     headings: result.headings.map(h => ({
                         ...h,
                         confidence: parseFloat(h.confidence.toFixed(4))
                     })),
-                    fontStatistics: Object.entries(result.fontStatistics).reduce((obj, [key, value]) => {
+                    fontStatistics: result.fontStatistics ? Object.entries(result.fontStatistics).reduce((obj, [key, value]) => {
                         obj[key] = typeof value === 'number' ? parseFloat(value.toFixed(4)) : value;
                         return obj;
-                    }, {}),
+                    }, {}) : {},
                     processingTime: result.processingTime
                 };
                 
                 fs.writeFileSync(jsonPath, JSON.stringify(serializableResult, null, 2));
                 
                 results.push(result);
-                console.log(`Successfully processed ${path.basename(pdfPath)} - Found ${result.headings.length} headings`);
+                console.log(`Successfully processed ${path.basename(pdfPath)} - ` + 
+                            `${result.usedFallback ? 'Using fallback parser' : `Found ${result.headings.length} headings`}`);
             } else {
                 console.warn(`Failed to process ${path.basename(pdfPath)}`);
             }
@@ -1293,18 +1372,22 @@ async function processResumeFolder(folderPath, outputFolder = null, visualize = 
         }
     }
     
-    // Generate summary report
+    // Generate summary report with fallback information
     if (results.length > 0) {
         const summaryPath = path.join(outputFolder, "processing_summary.json");
         const summary = {
             totalFiles: pdfFiles.length,
             successfulFiles: results.length,
+            fallbackFiles: fallbackResults.length,
+            fallbackFilesList: fallbackResults.map(p => path.basename(p)),
             averageProcessingTime: results.reduce((sum, r) => sum + r.processingTime, 0) / results.length,
-            averageSectionsFound: results.reduce((sum, r) => sum + r.headings.length, 0) / results.length
+            averageSectionsFound: results.filter(r => !r.usedFallback).reduce((sum, r) => sum + r.headings.length, 0) / 
+                                 (results.filter(r => !r.usedFallback).length || 1)
         };
         
         fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
-        console.log(`Processing complete. Summary saved to ${summaryPath}`);
+        console.log(`\nProcessing complete. Summary saved to ${summaryPath}`);
+        console.log(`Fallback parser used for ${fallbackResults.length} of ${pdfFiles.length} files.`);
     }
     
     return results;
